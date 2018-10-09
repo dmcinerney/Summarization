@@ -37,7 +37,7 @@ class PICODataset(DataFrameDataset):
 
 # PICO Dataset Wrapper
 class PICODataset_word2vec(VariableLength):
-    def __init__(self, dataset, preprocess_model):
+    def __init__(self, dataset, preprocess_model, with_oov=False):
         self.dataset = dataset
         self.word_indices = {}
         self.word_vectors = torch.zeros((len(preprocess_model.wv.vocab), preprocess_model.vector_size))
@@ -47,6 +47,7 @@ class PICODataset_word2vec(VariableLength):
             self.word_indices[k] = i
             self.word_vectors[i] = torch.tensor(v)
             self.words.append(k)
+        self.with_oov = with_oov
             
     def get_raw_inputs(self, i):
         abstract, (P, I, O) = self.dataset.preprocess(self.dataset.indices[i])
@@ -55,11 +56,14 @@ class PICODataset_word2vec(VariableLength):
     def prepare_inputs(self, v_args, nv_args, lengths):
         abstract, P, I, O = v_args
         abstract_length_max, P_length_max, I_length_max, O_length_max = lengths
-        abstract, abstract_length = get_text_indices(abstract, self.word_indices, abstract_length_max)
-        P, P_length = get_text_indices(P, self.word_indices, P_length_max)
-        I, I_length = get_text_indices(I, self.word_indices, I_length_max)
-        O, O_length = get_text_indices(O, self.word_indices, O_length_max)
-        return dict(abstract=abstract, abstract_length=abstract_length, P=P, P_length=P_length, I=I, I_length=I_length, O=O, O_length=O_length)
+        abstract, abstract_length, abstract_oov_indices = get_text_indices(abstract, self.word_indices, abstract_length_max)
+        P, P_length, _ = get_text_indices(P, self.word_indices, P_length_max)
+        I, I_length, _ = get_text_indices(I, self.word_indices, I_length_max)
+        O, O_length, _ = get_text_indices(O, self.word_indices, O_length_max)
+        return_dict = dict(abstract=abstract, abstract_length=abstract_length, P=P, P_length=P_length, I=I, I_length=I_length, O=O, O_length=O_length)
+        if self.with_oov:
+            return_dict['abstract_oov_indices'] = abstract_oov_indices
+        return return_dict
     
     def __len__(self):
         return len(self.dataset)

@@ -3,9 +3,9 @@ import os.path
 import spacy, re
 import torch
 import numpy as np
-nlp = spacy.load('en_core_web_sm', disable=['parser', 'tagger', 'ner'])
+nlp = spacy.load('en', disable=['parser', 'tagger', 'ner'])
 
-def preprocess_text(text) :
+def preprocess_text(text):
     text = re.sub(r'\s+', ' ', text.strip())
     text = [t.text.lower() for t in nlp(text)]
     text = ['qqq' if any(char.isdigit() for char in word) else word for word in text]
@@ -14,11 +14,16 @@ def preprocess_text(text) :
 def get_text_indices(text, word_indices, max_length):
     if max_length < len(text):
         raise Exception
+    oov_indices = {}
     indices = torch.zeros((max_length))
     for i,token in enumerate(text):
-        indices[i] = torch.tensor(word_indices[token])\
-                     if token in word_indices else -1
-    return indices.int(), torch.tensor(len(text))
+        if token in word_indices:
+            indices[i] = torch.tensor(word_indices[token])
+        else:
+            if token not in oov_indices.keys():
+                oov_indices[token] = len(oov_indices)
+            indices[i] = -1-oov_indices[token]
+    return indices.int(), torch.tensor(len(text)), oov_indices
 
 def get_index_words(text_indices, words):
     word_list = []
