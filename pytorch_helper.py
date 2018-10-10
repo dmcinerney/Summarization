@@ -239,9 +239,9 @@ def dicts_into_batch(list_of_dicts):
         for key,value in dictionary.items():
             if key not in return_dict.keys():
                 return_dict[key] = []
-            return_dict[key].append(value.view(1,*value.size()))
+            return_dict[key].append(value.view(1,*value.size()) if isinstance(value, torch.Tensor) else value)
     for key,value in return_dict.items():
-        return_dict[key] = torch.cat(value, 0)
+        return_dict[key] = torch.cat(value, 0) if isinstance(value[0], torch.Tensor) else value
     return return_dict
 
 def plot_learning_curves(training_values, validation_values=None, figure_name=None):

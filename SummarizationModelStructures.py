@@ -31,7 +31,7 @@ class ContextVectorNN(nn.Module):
         self.conv1 = nn.Conv1d(num_inputs, num_hidden, kernel_size=1)
         self.conv2 = nn.Conv1d(num_hidden, 1, kernel_size=1)
         
-    def forward(self, text_states, summary_current_state, coverage):
+    def forward(self, text_states, text_length, summary_current_state, coverage):
         text_states = text_states.transpose(-1,-2)
         sizes = [-1]*text_states.dim()
         sizes[-1] = text_states.size(-1)
@@ -39,7 +39,11 @@ class ContextVectorNN(nn.Module):
         outputs = torch.cat([text_states, summary_current_states, coverage], -2)
         outputs = torch.tanh(self.conv1(outputs))
         outputs = self.conv2(outputs)
-        attention = F.softmax(outputs, -1)
+        
+        # softmax each batch individually because they have different lengths
+        max_length = outputs.size(2)
+        attention = torch.cat([F.pad(F.softmax(batch[:,:text_length[i]].unsqueeze(0),-1), (0,max_length-text_length[i])) for i,batch in enumerate(outputs)], 0)
+        
         context_vector = (attention*text_states).sum(-1)
         return context_vector, attention
 
@@ -95,13 +99,13 @@ class GeneratorModel(nn.Module):
         
         if summary is None:
             if generate_algorithm == 'greedy':
-                return self.forward_generate_greedy(text_states, h, c)
+                return self.forward_generate_greedy(text_states, text_length, h, c)
             else:
                 raise Exception
         else:
-            return self.forward_supervised(text_states, h, c, summary, summary_length)
+            return self.forward_supervised(text_states, text_length, h, c, summary, summary_length)
     
-    def forward_generate_greedy(self, text_states, h, c):
+    def forward_generate_greedy(self, text_states, text_length, h, c):
         # initialize
         coverage = torch.zeros((text_states.size(0), 1, text_states.size(1)), device=text_states.device)
         loss_unnormalized = 0
@@ -116,7 +120,7 @@ class GeneratorModel(nn.Module):
             summary_t = summary[-1]
             
             # take a time step
-            vocab_dist, h, c, attention = self.timestep(valid_indices, summary_t, text_states, h, c, coverage)
+            vocab_dist, h, c, attention = self.timestep(valid_indices, summary_t, text_states, text_length, h, c, coverage)
             
             # get next time step words
             summary_tp1 = torch.zeros(batch_length, device=h.device).long()
@@ -146,7 +150,7 @@ class GeneratorModel(nn.Module):
         return loss_unnormalized/t, torch.cat(summary, 1), summary_length
     
     # not done yet
-    def forward_generate_beam(self, text_states, h, c, beam_width=1):
+    def forward_generate_beam(self, text_states, text_length, h, c, beam_width=1):
         # initialize
         coverage = torch.zeros((text_states.size(0), 1, text_states.size(1)), device=text_states.device)
         loss_unnormalized = RunningAverage()
@@ -162,7 +166,7 @@ class GeneratorModel(nn.Module):
             summary_t = summary[-1]
             
             # take a time step
-            vocab_dist, h, c, attention = self.timestep(valid_indices, summary_t, text_states, h, c, coverage)
+            vocab_dist, h, c, attention = self.timestep(valid_indices, summary_t, text_states, text_length, h, c, coverage)
             
             # get next time step words
             summary_tp1 = torch.zeros(batch_length, device=h.device).long()
@@ -192,7 +196,7 @@ class GeneratorModel(nn.Module):
         return loss_unnormalized/t, torch.cat(summary, 1), summary_length
 
 
-    def forward_supervised(self, text_states, h, c, summary, summary_length):
+    def forward_supervised(self, text_states, text_length, h, c, summary, summary_length):
         if summary_length is None:
             raise Exception
         # initialize
@@ -208,7 +212,7 @@ class GeneratorModel(nn.Module):
             valid_indices = torch.nonzero((summary_length-t-1) > 0)[:,0]
             
             # take a time step
-            vocab_dist, h, c, attention = self.timestep(valid_indices, summary_t, text_states, h, c, coverage)
+            vocab_dist, h, c, attention = self.timestep(valid_indices, summary_t, text_states, text_length, h, c, coverage)
             
             # get next time step words
             summary_tp1 = summary[:,t+1]
@@ -221,15 +225,16 @@ class GeneratorModel(nn.Module):
         T = summary.size(1)-1
         return dict(loss=loss_unnormalized/T)
         
-    def timestep(self, valid_indices, summary_t, text_states, h, c, coverage):
+    def timestep(self, valid_indices, summary_t, text_states, text_length, h, c, coverage):
         # inputs at valid indices at position t
         text_states_t = text_states[valid_indices]
+        text_length_t = text_length[valid_indices]
         summary_t = summary_t[valid_indices]
         h_t, c_t = h[valid_indices], c[valid_indices]
         coverage_t = coverage[valid_indices]
         
         # do forward pass
-        vocab_dist, h_t, c_t, attention_t = self.timestep_forward(summary_t, text_states_t, h_t, c_t, coverage_t)
+        vocab_dist, h_t, c_t, attention_t = self.timestep_forward(summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t)
         
         # set new h, c, coverage, and loss
         h[valid_indices], c[valid_indices] = h_t, c_t
@@ -237,11 +242,11 @@ class GeneratorModel(nn.Module):
         attention[valid_indices] = attention_t
         return vocab_dist, h, c, attention
     
-    def timestep_forward(self, summary_t, text_states_t, h_t, c_t, coverage_t):
+    def timestep_forward(self, summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t):
         summary_vec_t = get_text_matrix(summary_t, self.word_vectors, len(summary_t))[0]
         
         h_t, c_t = self.summary_decoder(summary_vec_t, (h_t, c_t))
-        context_vector, attention_t = self.context_nn(text_states_t, h_t, coverage_t)
+        context_vector, attention_t = self.context_nn(text_states_t, text_length_t, h_t, coverage_t)
         vocab_dist = self.vocab_nn(context_vector, h_t)
         return vocab_dist, h_t, c_t, attention_t
 
@@ -251,33 +256,45 @@ class GeneratorModel(nn.Module):
     
     
     
-# class PointerGeneratorModel(GeneratorModel):
-#     def __init__(self, word_vectors, start_index, end_index, num_hidden1=None, num_hidden2=None, with_coverage=False, gamma=1):
-#         super(self.__class__, self).__init__(word_vectors, start_index, end_index, num_hidden1=None, num_hidden2=None, with_coverage=False, gamma=1)
-#         self.probability_layer = ProbabilityNN(num_hidden1*3)
-#         self.text_oov_indices = None
-        
-#     def forward(self, text, text_length, text_oov_indices, summary=None, summary_length=None, generate_algorithm='greedy'):
-#         self.text_oov_indices = text_oov_indices
-#         return super(self.__class__, self).forward(text, text_length, summary=None, summary_length=None, generate_algorithm='greedy')
+class PointerGeneratorModel(GeneratorModel):
+    def __init__(self, word_vectors, start_index, end_index, num_hidden1=None, num_hidden2=None, with_coverage=False, gamma=1):
+        super(self.__class__, self).__init__(word_vectors, start_index, end_index, num_hidden1=None, num_hidden2=None, with_coverage=False, gamma=1)
+        self.probability_layer = ProbabilityNN(num_hidden1*3)
+        self.pointer_info = None
     
-#     def timestep_forward(self, summary_t, text_states_t, h_t, c_t, coverage_t, text_oov_indices):
-#         if text_oov_indices is not None:
-#             self.text_oov_indices = text_oov_indices
-#         if text_oov_indices is None:
-#             raise Exception
-            
-#         summary_vec_t = get_text_matrix(summary_t, self.word_vectors, len(summary_t))[0]
+    # this is a little bit of a hacky solution, setting the oov indices as an object attribute temporarily
+    def forward(self, text, text_length, text_oov_indices, summary=None, summary_length=None, generate_algorithm='greedy'):
+        self.pointer_info = (text, text_oov_indices)
+        return_values = super(self.__class__, self).forward(text, text_length, summary=None, summary_length=None, generate_algorithm='greedy')
+        self.pointer_info = None
+        return return_values
+    
+    def forward_generate_greedy(self, *args, **kwargs):
+        loss, summary, summary_length = super(self.__class__, self).forward_generate_greedy(*args, **kwargs)
+        return loss, summary, summary_length, self.pointer_info[1]
+    
+    def timestep_forward(self, summary_t, text_states_t, h_t, c_t, coverage_t):
+        if text_oov_indices is None:
+            raise Exception
+        # get the maximum number of oov words for the instances in the batch
+        max_num_oov = -torch.min(self.pointer_info[0])
         
-#         h_t, c_t = self.summary_decoder(summary_vec_t, (h_t, c_t))
-#         context_vector, attention_t = self.context_nn(text_states_t, h_t, coverage_t)
-#         vocab_dist1 = self.vocab_nn(context_vector, h_t)
+        # execute the normal timestep_forward function
+        # (need to rewrite the function because we need the context vector)
+        summary_vec_t = get_text_matrix(summary_t, self.word_vectors, len(summary_t))[0]
         
+        h_t, c_t = self.summary_decoder(summary_vec_t, (h_t, c_t))
+        context_vector, attention_t = self.context_nn(text_states_t, h_t, coverage_t)
+        vocab_dist1 = self.vocab_nn(context_vector, h_t)
+
+        # pad this vocab distribution to the size of the final vocab dist
+        vocab_dist1 = F.pad(vocab_dist1, (0,max_num_oov))
         
-#         vocab_dist2 = torch.zeros_like(vocab_dist1, device=vocab_dist1.device)
-#         vocab_dist2[torch.arange(), summary_t] += 
+        # 
+        vocab_dist2 = torch.zeros((vocab_dist1.size(0),vocab_dist1.size(1)+max_num_oov), device=vocab_dist1.device)
+        batch_indices = torch.arange(vocab_dist.size(0)).view(1,-1)
+        vocab_dist[batch_indices, text] += 
         
-#         inputs = torch.cat([context_vector, h_t])
-#         p = self.probability_layer()
+        p = self.probability_layer(context_vector, h_t)
         
-# #         return vocab_dist, h_t, c_t, attention_t
+#         return vocab_dist, h_t, c_t, attention_t
