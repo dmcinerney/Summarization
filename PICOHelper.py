@@ -57,9 +57,9 @@ class PICODataset_word2vec(VariableLength):
         abstract, P, I, O = v_args
         abstract_length_max, P_length_max, I_length_max, O_length_max = lengths
         abstract, abstract_length, abstract_oov_indices = get_text_indices(abstract, self.word_indices, abstract_length_max)
-        P, P_length, _ = get_text_indices(P, self.word_indices, P_length_max)
-        I, I_length, _ = get_text_indices(I, self.word_indices, I_length_max)
-        O, O_length, _ = get_text_indices(O, self.word_indices, O_length_max)
+        P, P_length, _ = get_text_indices(P, self.word_indices, P_length_max, oov_indices=abstract_oov_indices)
+        I, I_length, _ = get_text_indices(I, self.word_indices, I_length_max, oov_indices=abstract_oov_indices)
+        O, O_length, _ = get_text_indices(O, self.word_indices, O_length_max, oov_indices=abstract_oov_indices)
         return_dict = dict(abstract=abstract, abstract_length=abstract_length, P=P, P_length=P_length, I=I, I_length=I_length, O=O, O_length=O_length)
         if self.with_oov:
             return_dict['abstract_oov_indices'] = abstract_oov_indices
@@ -68,13 +68,13 @@ class PICODataset_word2vec(VariableLength):
     def __len__(self):
         return len(self.dataset)
     
-def get_pico_datasets():
+def get_pico_datasets(with_oov=False):
     df = pd.read_csv("data/study_inclusion.csv")
     train_indices, dev_indices, test_indices = get_indices_split(len(df),.6,.2)
     print(len(train_indices), len(dev_indices), len(test_indices))
     pico_dataset_train = PICODataset(df, train_indices)
     word2vec_model = train_word2vec_model("data/word2vec_min5_pico.model", document_iterator=pico_dataset_train.text_iterator(), size=100, window=5, min_count=5, workers=4)
-    pico_dataset_train_word2vec = PICODataset_word2vec(pico_dataset_train, word2vec_model)
-    pico_dataset_dev_word2vec = PICODataset_word2vec(PICODataset(df, dev_indices), word2vec_model)
-    pico_dataset_test_word2vec = PICODataset_word2vec(PICODataset(df, test_indices), word2vec_model)
+    pico_dataset_train_word2vec = PICODataset_word2vec(pico_dataset_train, word2vec_model, with_oov=with_oov)
+    pico_dataset_dev_word2vec = PICODataset_word2vec(PICODataset(df, dev_indices), word2vec_model, with_oov=with_oov)
+    pico_dataset_test_word2vec = PICODataset_word2vec(PICODataset(df, test_indices), word2vec_model, with_oov=with_oov)
     return pico_dataset_train_word2vec, pico_dataset_dev_word2vec, pico_dataset_test_word2vec

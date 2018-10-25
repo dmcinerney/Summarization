@@ -38,7 +38,7 @@ class ModelManipulator:
     
     def inputs_to_cuda(self, inputs):
         if self.use_cuda:
-            return {k:v.cuda() for k,v in inputs.items()}
+            return {k:(v.cuda() if isinstance(v, torch.Tensor) else v) for k,v in inputs.items()}
         else:
             return inputs
         
@@ -261,6 +261,11 @@ def plot_learning_curves(training_values, validation_values=None, figure_name=No
         plt.savefig(figure_name+'_error.png')
     plt.show()
     
+def log_sum_exp(inputs, dim, weights=None):
+    if weights is None:
+        weights = torch.ones(inputs.size(), device=inputs.device)
+    a = torch.max(inputs)
+    return a+torch.log(torch.sum(weights*torch.exp(inputs-a), dim=dim))
+    
 if __name__ == '__main__':
     print(ModelManipulator)
-    
