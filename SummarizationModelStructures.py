@@ -22,6 +22,8 @@ from utils import get_text_matrix
 from beam_search import Hypothesis
 import copy
 
+import pdb
+
 ################################ Sub modules for Summarization models ################################
 
 # Encodes text through an LSTM
@@ -59,15 +61,18 @@ class ContextVectorNN(nn.Module):
         sizes = [-1]*text_states.dim()
         sizes[-1] = text_states.size(-1)
         summary_current_states = summary_current_state.unsqueeze(-1).expand(*sizes)
-        outputs = torch.cat([text_states, summary_current_states, coverage], -2)
-        outputs = torch.tanh(self.conv1(outputs))
-        outputs = self.conv2(outputs)
+        inputs = torch.cat([text_states, summary_current_states, coverage], -2)
+        scores = self.conv2(torch.tanh(self.conv1(inputs)))
 
+#         # indicator of elements that are within the length of that instance
+#         indicator = torch.arange(outputs.size(2), device=outputs.device).expand(*outputs.size()) < text_length.view(-1,1,1)
+#         unnormalized_log_attention = torch.zeros(outputs.size(), device=outputs.device) - float('inf')
+#         unnormalized_log_attention[indicator] = outputs[indicator]
+#         attention = F.softmax(unnormalized_log_attention, -1)
         # indicator of elements that are within the length of that instance
-        indicator = torch.arange(outputs.size(2), device=outputs.device).expand(*outputs.size()) < text_length.view(-1,1,1)
-        unnormalized_log_attention = torch.zeros(outputs.size(), device=outputs.device) - float('inf')
-        unnormalized_log_attention[indicator] = outputs[indicator]
-        attention = F.softmax(unnormalized_log_attention, -1)
+        indicator = torch.arange(scores.size(2), device=scores.device).expand(*scores.size()) < text_length.view(-1,1,1)
+        attention = F.softmax(scores, -1)*indicator.float()
+        attention = attention/attention.sum(2, keepdim=True)
         
         context_vector = (attention*text_states).sum(-1)
         return context_vector, attention
@@ -83,7 +88,7 @@ class VocabularyDistributionNN(nn.Module):
         
     def forward(self, context_vector, summary_current_state):
         inputs = torch.cat((context_vector, summary_current_state), -1)
-        outputs = F.log_softmax(self.linear1(inputs), -1)
+        outputs = F.softmax(self.linear1(inputs), -1)
         return outputs
 
 # like the VocabularyDistributionNN, it takes as input the context vector and current state of the summary
@@ -381,7 +386,7 @@ class GeneratorModel(nn.Module):
     # calulates the log probability of the summary at a time step given the vocab distribution for that time step
     def calculate_log_prob(self, vocab_dist, summary_tp1):
         self.map_oov_indices(summary_tp1)
-        return vocab_dist[torch.arange(summary_tp1.size(0)).long(),summary_tp1.long()]
+        return torch.log(vocab_dist[torch.arange(summary_tp1.size(0)).long(),summary_tp1.long()])
     
     # calculates the coverage loss for each batch example at a time step
     def calculate_covloss(self, coverage, attention):
@@ -423,6 +428,7 @@ class PointerGeneratorModel(GeneratorModel):
     def timestep_forward(self, summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t):
         if self.pointer_info is None:
             raise Exception
+            
         # get text
         # get unique word indices
         # and the maximum number of oov words in the batch
@@ -431,12 +437,8 @@ class PointerGeneratorModel(GeneratorModel):
         max_num_oov = self.pointer_info.max_num_oov
         
         # execute the normal timestep_forward function
-        vocab_dist1, h_t, c_t, attention_t, context_vector = super(self.__class__, self).timestep_forward(summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t)
-        new_vocab_size = (vocab_dist1.size(0),vocab_dist1.size(1)+max_num_oov)
-        
-        # pad vocab_dist1 with -infinities
-        vocab_dist1_padded = torch.zeros(new_vocab_size, device=vocab_dist1.device)-float('inf')
-        vocab_dist1_padded[:,:vocab_dist1.size(1)] = vocab_dist1
+        vocab_dist, h_t, c_t, attention_t, context_vector = super(self.__class__, self).timestep_forward(summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t)
+        new_vocab_size = (vocab_dist.size(0),vocab_dist.size(1)+max_num_oov)
         
         # create distrubtion over vocab using attention
         # NOTE: for the same words in the text, the attention probability is summed from those indices
@@ -456,29 +458,22 @@ class PointerGeneratorModel(GeneratorModel):
         # Note that the attention on a word after the sequence ends is 0 so we do not need to worry when we sum
         word_probabilities = torch.transpose(attention_indicator.sum(-1), 0, 1)
         
-        # create this distribution by constructing a tensor of -infs of size (batch size, vocab size (including oov)) and then
-        # for each batch and every word index in word_indices the corresponding log probability for that word in the batch
-        # sets the vocab distribution at that word index
-        # NOTE: -infs will not ever be used because if a word is truly oov, than it will go to the oov slot in the vocab dist
-        #       and if the word is in the input text but oov for the static vocab, it will go to the corresponding index in the
-        #       vocab distribution, which will be set
-        vocab_dist2 = torch.zeros(new_vocab_size, device=vocab_dist1.device)-float('inf')
-        vocab_dist2[torch.arange(text.size(0)).view(-1,1),
-                    word_indices.expand(text.size(0),word_indices.size(0)).long()] = torch.log(word_probabilities)
-        
         # get probability of generating vs copying
         p_gen = self.probability_layer(context_vector, h_t)
         
         # attain mixture of the distributions according to p_gen
-        distributions = torch.cat((vocab_dist1_padded.view(1,*new_vocab_size), vocab_dist2.view(1,*new_vocab_size)), 0)
-        weights = torch.cat(((1-p_gen).view(1,new_vocab_size[0],1), p_gen.view(1,new_vocab_size[0],1)), 0)
-#         final_vocab_dist = log_sum_exp(distributions, 0, weights=weights)
-        # Hacks off all of the oov terms that appeared in the text so there are no nans in the gradient
-        final_vocab_dist = log_sum_exp(distributions[:, :, :vocab_dist1.size(1)], 0, weights=weights[:, :, :vocab_dist1.size(1)])
+
+        # pad vocab distribution
+        vocab_dist_probs = F.pad(vocab_dist, (0,max_num_oov))
+        
+        # get indices to add at
+        add_at_indices = word_indices.expand(text.size(0),word_indices.size(0)).long()
+        add_at_indices[add_at_indices < 0] += new_vocab_size[1].long()
+        final_vocab_dist = (p_gen*vocab_dist_probs).scatter_add(1, add_at_indices, (1-p_gen)*word_probabilities)
         
         return final_vocab_dist, h_t, c_t, attention_t, context_vector
     
     # this changes it so that only words that don't appear in the text and the static vocab are mapped to the oov index
-#     def map_oov_indices(self, indices):
-#         indices[(indices < -self.pointer_info.get_oov_lengths()).squeeze(0)] = len(self.word_vectors)
+    def map_oov_indices(self, indices):
+        indices[(indices < -self.pointer_info.get_oov_lengths()).squeeze(0)] = len(self.word_vectors)
     
