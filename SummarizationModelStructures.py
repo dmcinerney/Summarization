@@ -64,14 +64,14 @@ class ContextVectorNN(nn.Module):
         inputs = torch.cat([text_states, summary_current_states, coverage], -2)
         scores = self.conv2(torch.tanh(self.conv1(inputs)))
 
-        # indicator of elements that are within the length of that instance
-        indicator = torch.arange(scores.size(2), device=scores.device).expand(*scores.size()) >= text_length.view(-1,1,1)
-        unnormalized_log_attention = scores.masked_scatter(indicator, torch.zeros(indicator.sum(), device=scores.device)-float('inf'))
-        attention = F.softmax(unnormalized_log_attention, -1)
 #         # indicator of elements that are within the length of that instance
-#         indicator = torch.arange(scores.size(2), device=scores.device).expand(*scores.size()) < text_length.view(-1,1,1)
-#         attention = F.softmax(scores, -1)*indicator.float()
-#         attention = attention/attention.sum(2, keepdim=True)
+#         indicator = torch.arange(scores.size(2), device=scores.device).expand(*scores.size()) >= text_length.view(-1,1,1)
+#         unnormalized_log_attention = scores.masked_scatter(indicator, torch.zeros(indicator.sum(), device=scores.device)-float('inf'))
+#         attention = F.softmax(unnormalized_log_attention, -1)
+        # indicator of elements that are within the length of that instance
+        indicator = torch.arange(scores.size(2), device=scores.device).expand(*scores.size()) < text_length.view(-1,1,1)
+        attention = F.softmax(scores, -1)*indicator.float()
+        attention = attention/attention.sum(2, keepdim=True)
         
         context_vector = (attention*text_states).sum(-1)
         return context_vector, attention
@@ -326,7 +326,7 @@ class GeneratorModel(nn.Module):
         self.context_nn = ContextVectorNN(self.num_hidden1*3, self.num_hidden2)
         self.vocab_nn = VocabularyDistributionNN(self.num_hidden1*3, num_vocab+1)
         
-    def forward(self, text, text_length, summary=None, summary_length=None, beam_size=1, return_all=False):
+    def forward(self, text, text_length, summary=None, summary_length=None, beam_size=1):
         # get batch with vectors from index batch
         text = [get_text_matrix(example[:text_length[i]], self.word_vectors, text.size(1))[0].unsqueeze(0) for i,example in enumerate(text)]
         text = torch.cat(text, 0)
@@ -335,12 +335,12 @@ class GeneratorModel(nn.Module):
         text_states, (h, c) = self.text_encoder(text, text_length)
         
         if summary is None:
-            return self.forward_generate(text_states, text_length, h[:,0], c[:,0], beam_size=beam_size, return_all=return_all)
+            return self.forward_generate(text_states, text_length, h[:,0], c[:,0], beam_size=beam_size)
 #             return self.forward_generate_greedy(text_states, text_length, h[:,0], c[:,0])
         else:
             return self.forward_supervised(text_states, text_length, h[:,0], c[:,0], summary, summary_length)
         
-    def forward_generate(self, text_states, text_length, h, c, beam_size=1, return_all=False):
+    def forward_generate(self, text_states, text_length, h, c, beam_size=1):
         # initialize
         batch_length = text_states.size(0)
         device = text_states.device
@@ -350,11 +350,7 @@ class GeneratorModel(nn.Module):
         
         results = beam_search(hypothesis.next_hypotheses(beam_size), beam_size)
         
-        if not return_all:
-            generated_summary = results[0].generated_summary
-            return generated_summary.loss(), generated_summary.return_info()
-        else:
-            return [(r.generated_summary.loss(), r.generated_summary.return_info()) for r in results]
+        return [(r.generated_summary.loss(), r.generated_summary.return_info()) for r in results]
 
     # implements the forward pass of the decoder for generating summaries at test time
     # when beam search is finished this will become depricated and one will instead use beam search
@@ -480,17 +476,18 @@ class PointerGeneratorModel(GeneratorModel):
         self.pointer_info = None
     
     # this is a little bit of a hacky solution, setting the pointer info as an object attribute temporarily
-    def forward(self, text, text_length, text_oov_indices, summary=None, summary_length=None, beam_size=1, return_all=False):
+    def forward(self, text, text_length, text_oov_indices, summary=None, summary_length=None, beam_size=1):
         self.pointer_info = PointerInfo(text, text_oov_indices)
-        return_values = super(self.__class__, self).forward(text, text_length, summary=summary, summary_length=summary_length, beam_size=1, return_all=False)
+        return_values = super(self.__class__, self).forward(text, text_length, summary=summary, summary_length=summary_length, beam_size=beam_size)
         self.pointer_info = None
         return return_values
     
     def forward_generate(self, *args, **kwargs):
         return_values = super(self.__class__, self).forward_generate(*args, **kwargs)
-        summary = return_values[1][0]
-        summary[summary >= len(self.word_vectors)] -= (len(self.word_vectors)+1+self.pointer_info.max_num_oov)
-        return (*return_values, self.pointer_info.text_oov_indices)
+        for v in return_values:
+            summary = v[1][0]
+            summary[summary >= len(self.word_vectors)] -= (len(self.word_vectors)+1+self.pointer_info.max_num_oov)
+        return return_values, self.pointer_info.text_oov_indices
     
     def timestep(self, valid_indices, summary_t, text_states, text_length, h, c, coverage):
         self.pointer_info.update_valid_indices(valid_indices)
@@ -547,5 +544,5 @@ class PointerGeneratorModel(GeneratorModel):
     
     # this changes it so that only words that don't appear in the text and the static vocab are mapped to the oov index
     def map_oov_indices(self, indices):
-        indices[(indices < -self.pointer_info.get_oov_lengths()).squeeze(0)] = len(self.word_vectors)
+        indices[(indices.int() < -self.pointer_info.get_oov_lengths()).squeeze(0)] = len(self.word_vectors)
     

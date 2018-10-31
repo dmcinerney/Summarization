@@ -260,7 +260,7 @@ def dicts_into_batch(list_of_dicts):
         return_dict[key] = torch.cat(value, 0) if isinstance(value[0], torch.Tensor) else value
     return return_dict
 
-def plot_learning_curves(training_values, validation_values=None, figure_name=None):
+def plot_learning_curves(training_values, validation_values=None, figure_name=None, show=True):
     train_steps, train_losses, train_errors = training_values
     if validation_values is not None:
         validation_steps, validation_losses, validation_errors = validation_values
@@ -275,7 +275,8 @@ def plot_learning_curves(training_values, validation_values=None, figure_name=No
         plt.plot(validation_steps, validation_errors)
     if figure_name is not None:
         plt.savefig(figure_name+'_error.png')
-    plt.show()
+    if show:
+        plt.show()
     
 def log_sum_exp(inputs, dim, weights=None):
     if weights is None:
