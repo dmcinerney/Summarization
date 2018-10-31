@@ -17,9 +17,9 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order, log_sum_exp
+from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order, log_sum_exp, pad_and_concat, batch_stitch
 from utils import get_text_matrix
-from beam_search import Hypothesis
+from beam_search import Hypothesis, beam_search
 import copy
 
 import pdb
@@ -64,15 +64,14 @@ class ContextVectorNN(nn.Module):
         inputs = torch.cat([text_states, summary_current_states, coverage], -2)
         scores = self.conv2(torch.tanh(self.conv1(inputs)))
 
-#         # indicator of elements that are within the length of that instance
-#         indicator = torch.arange(outputs.size(2), device=outputs.device).expand(*outputs.size()) < text_length.view(-1,1,1)
-#         unnormalized_log_attention = torch.zeros(outputs.size(), device=outputs.device) - float('inf')
-#         unnormalized_log_attention[indicator] = outputs[indicator]
-#         attention = F.softmax(unnormalized_log_attention, -1)
         # indicator of elements that are within the length of that instance
-        indicator = torch.arange(scores.size(2), device=scores.device).expand(*scores.size()) < text_length.view(-1,1,1)
-        attention = F.softmax(scores, -1)*indicator.float()
-        attention = attention/attention.sum(2, keepdim=True)
+        indicator = torch.arange(scores.size(2), device=scores.device).expand(*scores.size()) >= text_length.view(-1,1,1)
+        unnormalized_log_attention = scores.masked_scatter(indicator, torch.zeros(indicator.sum(), device=scores.device)-float('inf'))
+        attention = F.softmax(unnormalized_log_attention, -1)
+#         # indicator of elements that are within the length of that instance
+#         indicator = torch.arange(scores.size(2), device=scores.device).expand(*scores.size()) < text_length.view(-1,1,1)
+#         attention = F.softmax(scores, -1)*indicator.float()
+#         attention = attention/attention.sum(2, keepdim=True)
         
         context_vector = (attention*text_states).sum(-1)
         return context_vector, attention
@@ -107,23 +106,69 @@ class ProbabilityNN(nn.Module):
 ################################ Helper classes and functions for Summarization models ################################
 
 class GeneratedSummary:
-    def __init__(self, batch_length, device, start_index, end_index):
-        self.summary = [torch.zeros((batch_length,1), device=device).long()+start_index]
-        self.summary_length = torch.zeros(batch_length, device=device).long()-1
-        self.valid_indices = torch.arange(batch_length, device=device)
+    @classmethod
+    def batch_stitch(cls, generated_summaries, indices):
+        # concatenate all of the relevant attributes into a list (all elements should be tensors)
+        summary_list = [gs.summary for gs in generated_summaries]
+        summary_length_list = [gs.summary_length for gs in generated_summaries]
+        loss_unnormalized_list = [gs.loss_unnormalized for gs in generated_summaries]
+        log_probs_list = [gs.log_probs for gs in generated_summaries]
+        attentions_list = [gs.attentions for gs in generated_summaries]
+        
+        # use batch_stitch to get the resultant attribute tensors of size (indices.size(0), batch_length, etc...)
+        summary_list, summary_length_list, loss_unnormalized_list, log_probs_list, attentions_list = batch_stitch(
+            [summary_list,
+             summary_length_list,
+             loss_unnormalized_list,
+             log_probs_list,
+             attentions_list],
+            indices,
+            static_flags=[False,True,True,False,False]
+        )
+        
+        curr_length = max(len(gs) for gs in generated_summaries)
+        new_generated_summaries = []
+        for i in range(indices.size(0)):
+            # reduce padding to only what is needed (if summary is not done, then this is just the current length)
+            max_length = torch.max(summary_length_list[i]) if not (summary_length_list[i] == -1).any() else curr_length
+            # create new summary and set the state to the state of the stitched batch
+            new_generated_summary = GeneratedSummary(
+                end_index=generated_summaries[0].end_index,
+                summary=summary_list[i, :, :max_length],
+                summary_length=summary_length_list[i],
+                loss_unnormalized=loss_unnormalized_list[i],
+                log_probs=log_probs_list[i, :, :(max_length-1)],
+                attentions=attentions_list[i, :, :(max_length-1)]
+            )
+            
+            new_generated_summaries.append(new_generated_summary)
+            
+        return new_generated_summaries
+    
+    def __init__(self, batch_length=None, device=None, start_index=None, end_index=None, summary=None, summary_length=None, valid_indices=None, loss_unnormalized=None, log_probs=None, attentions=None):
+        self.summary = torch.zeros((batch_length,1), device=device).long()+start_index if summary is None else summary
+        self.summary_length = (torch.zeros(batch_length, device=device).long()-1) if summary_length is None else summary_length
+        self.valid_indices = torch.arange(self.summary_length.size(0), device=self.summary_length.device)[self.summary_length < 0]
         self.end_index = end_index
-        self.loss_unnormalized = torch.zeros(batch_length, device=device)
-        self.log_probs = []
-        self.attentions = []
+        self.loss_unnormalized = torch.zeros(batch_length, device=device) if loss_unnormalized is None else loss_unnormalized
+        self.log_probs = torch.zeros(0, device=device) if log_probs is None else log_probs
+        self.attentions = torch.zeros(0, device=device) if attentions is None else attentions
         
     def get_summary_t(self):
-        return self.summary[-1], self.valid_indices
+        return self.summary[:,-1], self.valid_indices
     
     def update(self, summary_tp1, loss_t, log_prob, attention):
-        self.summary.append(summary_tp1.unsqueeze(-1))
+        self.summary = torch.cat((self.summary, summary_tp1.unsqueeze(-1)), -1)
         
-        # add global log probability
+        # add loss for each batch
         self.loss_unnormalized[self.valid_indices] += loss_t
+        
+        # expand log prob to full batch dimention
+        full_log_prob = torch.zeros(self.summary_length.size(0), device=self.summary_length.device).scatter(0, self.valid_indices, log_prob).unsqueeze(-1)
+        # append log_prob to log_probs
+        self.log_probs = torch.cat((self.log_probs, full_log_prob), -1)
+        # append attention to attentions
+        self.attentions = torch.cat((self.attentions, attention.unsqueeze(-1)), -1)
         
         # get indices of instances that are not finished
         # and get indices of instances that are finished
@@ -132,46 +177,75 @@ class GeneratedSummary:
         self.valid_indices = self.valid_indices[ending == 0]
         
         # set summary length for ended time steps
-        self.summary_length[ended_indices] = len(self.summary)
-        
-        self.log_probs.append(log_prob.cpu().detach().numpy())
-        self.attentions.append(attention.cpu().detach().numpy())
+        self.summary_length[ended_indices] = self.summary.size(1)
         
     def loss(self):
-        return self.loss_unnormalized.sum()/(len(self)-1)
+        return self.loss_unnormalized/(self.length().float()-1)
         
     def is_done(self):
-        return (self.summary_length >= 0).sum() == self.summary_length.size(0) or len(self.summary) > 300
+        return (self.summary_length >= 0).sum() == self.summary_length.size(0) or len(self) > 300
         
     def return_info(self):
-        return torch.cat(self.summary, -1).cpu().detach().numpy(), self.summary_length.cpu().detach().numpy(), self.log_probs, self.attentions
+        return self.summary.cpu().detach().numpy(), self.summary_length.cpu().detach().numpy(), self.log_probs.cpu().detach().numpy(), self.attentions.cpu().detach().numpy()
+    
+    def length(self):
+        length = torch.tensor(self.summary_length)
+        length[length < 0] = len(self)
+        return length
     
     def __len__(self):
-        return len(self.summary)
+        return self.summary.size(1)
+    
+    def copy(self):
+        gs_copy = GeneratedSummary(
+            end_index=self.end_index,
+            summary=torch.tensor(self.summary),
+            summary_length=torch.tensor(self.summary_length),
+            loss_unnormalized=torch.tensor(self.loss_unnormalized),
+            log_probs=torch.tensor(self.log_probs),
+            attentions=torch.tensor(self.attentions)
+        )
+        return gs_copy
     
 class GeneratedSummaryHypothesis(Hypothesis):
-    @staticmethod
-    def get_top_k(hypotheses, k):
-        # set attributes that stay the same
-        model, text_states, text_length, beam_size = hypotheses[0].model, hypotheses[0].text_states, hypotheses[0].text_length, hypotheses[0].beam_size
-        
-        # create list of hypothesis-dependent attributes in a tuple
-        hyp_attrs = pad_and_concat([()])
-        raise NotImplementedError
+    @classmethod
+    def get_top_k(cls, hypotheses, k, sorted=False):
+        losses = pad_and_concat([hyp.generated_summary.loss() for hyp in hypotheses], static=True)
+        indices = torch.topk(losses, k, dim=0, largest=False, sorted=sorted)[1]
+        return cls.batch_stitch(hypotheses, indices)
     
-    def __init__(self, model, generated_summary, text_states, text_length, h, c, coverage, beam_size):
+    @classmethod
+    def batch_stitch(cls, hypotheses, indices):
+        # set attributes that stay the same
+        model, text_states, text_length = hypotheses[0].model, hypotheses[0].text_states, hypotheses[0].text_length
+        
+        # call the stitch function on all non-tensor attributes that differ
+        generated_summaries = GeneratedSummary.batch_stitch([hyp.generated_summary for hyp in hypotheses], indices)
+        
+        # create tensors of all of the tensor attributes that differ
+        h_list = [hyp.h for hyp in hypotheses]
+        c_list = [hyp.c for hyp in hypotheses]
+        coverage_list = [hyp.coverage for hyp in hypotheses]
+        h_list, c_list, coverage_list = batch_stitch(
+            [h_list, c_list, coverage_list],
+            indices,
+            static_flags=[True, True, True]
+        )
+        
+        return [cls(model, generated_summaries[i], text_states, text_length, h_list[i], c_list[i], coverage_list[i]) for i in range(h_list.size(0))]
+        
+    def __init__(self, model, generated_summary, text_states, text_length, h, c, coverage):
         self.model = model
         self.generated_summary = generated_summary
         self.text_states = text_states
         self.text_length = text_length
         self.h, self.c = h, c
         self.coverage = coverage
-        self.beam_size = beam_size
         
         self.batch_length = text_states.size(0)
         self.device = text_states.device
         
-    def next_hypotheses(self):
+    def next_hypotheses(self, beam_size):
         # set timestep words, valid indices
         summary_t, valid_indices = self.generated_summary.get_summary_t()
 
@@ -179,27 +253,27 @@ class GeneratedSummaryHypothesis(Hypothesis):
         vocab_dist, h, c, attention, _ = self.model.timestep(valid_indices, summary_t, self.text_states, self.text_length, self.h, self.c, self.coverage)
         
         hypotheses = []
-        word_indices = torch.topk(vocab_dist, self.beam_size, dim=1)[1]
-        for i in range(self.beam_size):
-            generated_summary_temp = copy.deepcopy(self.generated_summary)
+        word_indices = torch.topk(vocab_dist, beam_size, dim=1)[1]
+        for i in range(beam_size):
+            generated_summary_temp = self.generated_summary.copy()
             
             # generate next summary words
             summary_tp1 = torch.zeros(self.batch_length, device=self.device).long()
-            summary_tp1[valid_indices] = word_indices[i]
+            summary_tp1[valid_indices] = word_indices[:,i]
 
             # calculate log prob, calculate covloss if aplicable, update coverage if aplicable
-            log_prob = self.calculate_log_prob(vocab_dist, summary_tp1[valid_indices])
-            if self.with_coverage:
-                covloss = self.calculate_covloss(coverage[valid_indices], attention[valid_indices])
+            log_prob = self.model.calculate_log_prob(vocab_dist, summary_tp1[valid_indices])
+            if self.model.with_coverage:
+                covloss = self.model.calculate_covloss(coverage[valid_indices], attention[valid_indices])
                 coverage += attention
             
             # update global log prob
-            loss_t = -log_prob + self.gamma*(covloss if self.with_coverage else 0)
+            loss_t = -log_prob + self.model.gamma*(covloss if self.model.with_coverage else 0)
 
             generated_summary_temp.update(summary_tp1, loss_t, log_prob, attention)
             
             # add this generated summary as another hypothesis
-            hyp = GeneratedSummaryHypotheses(self.model, generated_summary_temp, self.text_states, self.text_length, self.h, self.c, self.coverage, self.loss_unnormalized, self.beam_size)
+            hyp = GeneratedSummaryHypothesis(self.model, generated_summary_temp, self.text_states, self.text_length, self.h, self.c, self.coverage)
             hypotheses.append(hyp)
             
         return hypotheses
@@ -227,7 +301,7 @@ class PointerInfo:
         return self.oov_lengths[self.valid_indices] if self.valid_indices is not None else self.oov_lengths
     
 def loss_function(loss):
-    return loss
+    return loss.sum()
 
 def error_function(loss):
     return None
@@ -252,7 +326,7 @@ class GeneratorModel(nn.Module):
         self.context_nn = ContextVectorNN(self.num_hidden1*3, self.num_hidden2)
         self.vocab_nn = VocabularyDistributionNN(self.num_hidden1*3, num_vocab+1)
         
-    def forward(self, text, text_length, summary=None, summary_length=None, generate_algorithm='greedy'):
+    def forward(self, text, text_length, summary=None, summary_length=None, beam_size=1, return_all=False):
         # get batch with vectors from index batch
         text = [get_text_matrix(example[:text_length[i]], self.word_vectors, text.size(1))[0].unsqueeze(0) for i,example in enumerate(text)]
         text = torch.cat(text, 0)
@@ -261,27 +335,26 @@ class GeneratorModel(nn.Module):
         text_states, (h, c) = self.text_encoder(text, text_length)
         
         if summary is None:
-            if generate_algorithm == 'greedy':
-                return self.forward_generate_greedy(text_states, text_length, h[:,0], c[:,0])
-            else:
-                raise Exception
+            return self.forward_generate(text_states, text_length, h[:,0], c[:,0], beam_size=beam_size, return_all=return_all)
+#             return self.forward_generate_greedy(text_states, text_length, h[:,0], c[:,0])
         else:
             return self.forward_supervised(text_states, text_length, h[:,0], c[:,0], summary, summary_length)
         
-#     def forward_generate(self, text_states, text_length, h, c, beam_size=1):
-#         # initialize
-#         batch_length = text_states.size(0)
-#         device = text_states.device
-#         coverage = torch.zeros((batch_length, 1, text_states.size(1)), device=device)
-#         loss_unnormalized = 0
-#         h, c = h[:,0], c[:,0]
-#         generated_summary = GeneratedSummary(batch_length, device, self.start_index, self.end_index)
-#         hypothesis = GeneratedSummaryHypothesis(self, generated_summary, text_states, text_length, h, c, coverage, beam_size)
-
-#         result = beam_search([hypothesis], beam_size)
-#         generated_summary = result.hypothesis
+    def forward_generate(self, text_states, text_length, h, c, beam_size=1, return_all=False):
+        # initialize
+        batch_length = text_states.size(0)
+        device = text_states.device
+        generated_summary = GeneratedSummary(batch_length, device, self.start_index, self.end_index)
+        coverage = torch.zeros((batch_length, 1, text_states.size(1)), device=device)
+        hypothesis = GeneratedSummaryHypothesis(self, generated_summary, text_states, text_length, h, c, coverage)
         
-#         return loss_unnormalized/(len(generated_summary)-1), generated_summary.return_info()
+        results = beam_search(hypothesis.next_hypotheses(beam_size), beam_size)
+        
+        if not return_all:
+            generated_summary = results[0].generated_summary
+            return generated_summary.loss(), generated_summary.return_info()
+        else:
+            return [(r.generated_summary.loss(), r.generated_summary.return_info()) for r in results]
 
     # implements the forward pass of the decoder for generating summaries at test time
     # when beam search is finished this will become depricated and one will instead use beam search
@@ -350,8 +423,7 @@ class GeneratorModel(nn.Module):
             # update unnormalized loss
             loss_unnormalized[valid_indices] += -log_prob + self.gamma*(covloss if self.with_coverage else 0)
             
-        T = summary.size(1)-1
-        return dict(loss=loss_unnormalized.sum()/T)
+        return dict(loss=(loss_unnormalized/(summary_length.float()-1)).sum())
     
     # this timestep calls timestep forward and converts the inputs to and from just the valid batch examples
     # of those inputs at that time step
@@ -408,14 +480,14 @@ class PointerGeneratorModel(GeneratorModel):
         self.pointer_info = None
     
     # this is a little bit of a hacky solution, setting the pointer info as an object attribute temporarily
-    def forward(self, text, text_length, text_oov_indices, summary=None, summary_length=None, generate_algorithm='greedy'):
+    def forward(self, text, text_length, text_oov_indices, summary=None, summary_length=None, beam_size=1, return_all=False):
         self.pointer_info = PointerInfo(text, text_oov_indices)
-        return_values = super(self.__class__, self).forward(text, text_length, summary=summary, summary_length=summary_length, generate_algorithm=generate_algorithm)
+        return_values = super(self.__class__, self).forward(text, text_length, summary=summary, summary_length=summary_length, beam_size=1, return_all=False)
         self.pointer_info = None
         return return_values
     
-    def forward_generate_greedy(self, *args, **kwargs):
-        return_values = super(self.__class__, self).forward_generate_greedy(*args, **kwargs)
+    def forward_generate(self, *args, **kwargs):
+        return_values = super(self.__class__, self).forward_generate(*args, **kwargs)
         summary = return_values[1][0]
         summary[summary >= len(self.word_vectors)] -= (len(self.word_vectors)+1+self.pointer_info.max_num_oov)
         return (*return_values, self.pointer_info.text_oov_indices)

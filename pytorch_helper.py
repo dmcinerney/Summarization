@@ -2,8 +2,8 @@
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
 from torch.utils.data.dataset import random_split, Subset
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import matplotlib.pyplot as plt
@@ -201,6 +201,22 @@ def print_loop(i, length, every=1000):
     if (i+1) % every == 0 or i == length-1:
         print("%d/%d" % (i+1, length))
 
+# loads batches that are of different lengths
+class VariableBatchDataLoader:
+    def __init__(self, dataset, batch_size, shuffle=False):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.indices = np.arange(len(dataset))
+        self.shuffle = shuffle
+        
+    def __iter__(self):
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+        indices = torch.tensor(self.indices)
+        for i in range(len(indices)//self.batch_size):
+            offset = int(i*self.batch_size)
+            yield self.dataset[indices[offset:offset+self.batch_size]]
+            
 class MultiDatasetDataLoader:
     def __init__(self, datasets, **kwargs):
         self.dataloaders = [DataLoader(dataset, **kwargs) for dataset in datasets]
@@ -266,6 +282,40 @@ def log_sum_exp(inputs, dim, weights=None):
         weights = torch.ones(inputs.size(), device=inputs.device)
     a = torch.max(inputs)
     return a+torch.log(torch.sum(weights*torch.exp(inputs-a), dim=dim))
-    
+
+def pad_and_concat(tensors, static=False):
+    dim = tensors[0].dim()
+    if not static:
+        max_size = [0]*dim
+        for tensor in tensors:
+            if tensor.dim() != dim:
+                raise Exception
+            for i in range(dim):
+                max_size[i] = max(max_size[i], tensor.size(i))
+    else:
+        max_size = tensors[0].size()
+    concatenated_tensor = []
+    for tensor in tensors:
+        if not static:
+            padding = []
+            for i in range(dim-1,-1,-1):
+                padding.extend([0,max_size[i]-tensor.size(i)])
+            new_tensor = F.pad(tensor, tuple(padding))
+        else:
+            new_tensor = tensor
+        concatenated_tensor.append(new_tensor.view(1,*new_tensor.size()))
+    concatenated_tensor = torch.cat(concatenated_tensor, 0)
+    return concatenated_tensor
+
+def batch_stitch(tensor_lists, indices, static_flags=None):
+    return_tensors = []
+    for i,tensor_list in enumerate(tensor_lists):
+        new_tensor = pad_and_concat(tensor_list, static=(False if static_flags is None else static_flags[i]))
+        size = [1]*new_tensor.dim()
+        size[:indices.dim()] = indices.size()
+        return_tensors.append(new_tensor.gather(0, indices.view(*size).expand(size[0],*new_tensor.shape[1:])))
+    return return_tensors
+
+
 if __name__ == '__main__':
     print(ModelManipulator)

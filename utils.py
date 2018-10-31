@@ -3,6 +3,7 @@ import os.path
 import spacy, re
 import torch
 import numpy as np
+import json
 nlp = spacy.load('en', disable=['parser', 'tagger', 'ner'])
 
 def preprocess_text(text):
@@ -45,7 +46,7 @@ def get_text_matrix(text_indices, word_vectors, max_length):
     vectors = torch.zeros((max_length, len(word_vectors[0])), device=text_indices.device)
     for i,index in enumerate(text_indices):
         vectors[i,:] = torch.tensor(word_vectors[index])\
-                       if index >= 0 and index < len(word_vectors) else torch.randn(len(word_vectors[0]))
+                       if index >= 0 and index < len(word_vectors) else torch.zeros(len(word_vectors[0]))#torch.randn(len(word_vectors[0]))
     return vectors.float(), torch.tensor(len(text_indices))
 
 def train_word2vec_model(filename, document_iterator=None, force_reload=False, **kwargs):
@@ -83,17 +84,12 @@ class DataFrameDataset:
     def get_valid_rows(self):
         raise NotImplementedError
         
-class DataLoader:
-    def __init__(self, dataset, batch_size, shuffle=False):
-        self.dataset = dataset
-        self.batch_size = batch_size
-        self.indices = np.arange(len(dataset))
-        if shuffle:
-            np.random.shuffle(self.indices)
-        self.indices = torch.tensor(self.indices)
-        
-    def __iter__(self):
-        for i in range(len(self.indices)//self.batch_size):
-            offset = int(i*self.batch_size)
-            yield self.dataset[self.indices[offset:offset+self.batch_size]]
-        
+def produce_attention_visualization_file(filename, text, decoded_summary, reference_summary, attentions, p_gens):
+    data = {'article_lst': text,
+            'decoded_lst': decoded_summary,
+            'abstract_str': reference_summary,
+            'attn_dists': attentions,
+            'p_gens': p_gens}
+    
+    with open(filename, 'w') as outfile:
+        json.dump(data, outfile)
