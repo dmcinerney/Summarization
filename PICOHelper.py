@@ -73,7 +73,8 @@ def get_pico_datasets(with_oov=False):
     train_indices, dev_indices, test_indices = get_indices_split(len(df),.6,.2)
     print(len(train_indices), len(dev_indices), len(test_indices))
     pico_dataset_train = PICODataset(df, train_indices)
-    word2vec_model = train_word2vec_model("data/word2vec_min5_pico.model", document_iterator=pico_dataset_train.text_iterator(), size=100, window=5, min_count=5, workers=4)
+    size, min_count = 100, 5
+    word2vec_model = train_word2vec_model("models/word2vec_%id_min%i_pico.model" % (size, min_count), document_iterator=pico_dataset_train.text_iterator(), size=size, window=5, min_count=min_count, workers=4)
     pico_dataset_train_word2vec = PICODataset_word2vec(pico_dataset_train, word2vec_model, with_oov=with_oov)
     pico_dataset_dev_word2vec = PICODataset_word2vec(PICODataset(df, dev_indices), word2vec_model, with_oov=with_oov)
     pico_dataset_test_word2vec = PICODataset_word2vec(PICODataset(df, test_indices), word2vec_model, with_oov=with_oov)
