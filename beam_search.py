@@ -1,5 +1,3 @@
-import pdb
-
 class Hypothesis:
     @classmethod
     def get_top_k(cls, hypotheses, k):

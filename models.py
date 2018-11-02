@@ -79,13 +79,15 @@ class GeneratorModel(nn.Module):
             summary_tp1 = summary[:,t+1]
             
             # calculate log prob, calculate covloss if aplicable, update coverage if aplicable
-            log_prob = self.calculate_log_prob(vocab_dist, summary_tp1[valid_indices])
+            log_prob = torch.zeros(batch_length, device=device)
+            log_prob[valid_indices] = self.calculate_log_prob(vocab_dist, summary_tp1[valid_indices])
             if self.with_coverage:
-                covloss = self.calculate_covloss(coverage[valid_indices], attention[valid_indices])
+                covloss = torch.zeros(batch_length, device=device)
+                covloss[valid_indices] = self.calculate_covloss(coverage[valid_indices], attention[valid_indices])
                 coverage += attention
             
             # update unnormalized loss
-            loss_unnormalized[valid_indices] += -log_prob + self.gamma*(covloss if self.with_coverage else 0)
+            loss_unnormalized += -log_prob + self.gamma*(covloss if self.with_coverage else 0)
             
         return dict(loss=(loss_unnormalized/(summary_length.float()-1)).sum())
     
@@ -132,6 +134,10 @@ class GeneratorModel(nn.Module):
     # that represents an oov word
     def map_oov_indices(self, indices):
         indices[indices < 0] = -1
+        
+    # this adds any extra information you may want to add to a summary
+    def get_extras(self):
+        return ()
     
     
 # This model subclasses the generator model so that on each forward timestep, it averages the generator vocab distribution
@@ -197,6 +203,7 @@ class PointerGeneratorModel(GeneratorModel):
         
         # get probability of generating vs copying
         p_gen = self.probability_layer(context_vector, h_t)
+        self.pointer_info.update_p_gen(p_gen)
         
         # attain mixture of the distributions according to p_gen
 
@@ -213,4 +220,7 @@ class PointerGeneratorModel(GeneratorModel):
     # this changes it so that only words that don't appear in the text and the static vocab are mapped to the oov index
     def map_oov_indices(self, indices):
         indices[(indices.int() < -self.pointer_info.get_oov_lengths()).squeeze(0)] = len(self.word_vectors)
+        
+    def get_extras(self):
+        return (self.pointer_info.current_p_gen,)
     

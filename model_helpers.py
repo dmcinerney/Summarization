@@ -1,6 +1,7 @@
 import torch
 from pytorch_helper import pad_and_concat, batch_stitch
 from beam_search import Hypothesis
+import pdb
 
 # Description: This file contains helper classes and functions for the summarization models
 # Outline:
@@ -17,18 +18,22 @@ class GeneratedSummary:
         summary_list = [gs.summary for gs in generated_summaries]
         summary_length_list = [gs.summary_length for gs in generated_summaries]
         loss_unnormalized_list = [gs.loss_unnormalized for gs in generated_summaries]
-        log_probs_list = [gs.log_probs for gs in generated_summaries]
-        attentions_list = [gs.attentions for gs in generated_summaries]
+        extras_list = []
+        for i in range(len(generated_summaries[0].extras)):
+            extras_list.append([gs.extras[i] for gs in generated_summaries])
         
         # use batch_stitch to get the resultant attribute tensors of size (indices.size(0), batch_length, etc...)
-        summary_list, summary_length_list, loss_unnormalized_list, log_probs_list, attentions_list = batch_stitch(
+        summary_list, summary_length_list, loss_unnormalized_list = batch_stitch(
             [summary_list,
              summary_length_list,
-             loss_unnormalized_list,
-             log_probs_list,
-             attentions_list],
+             loss_unnormalized_list],
             indices,
-            static_flags=[False,True,True,False,False]
+            static_flags=[False, True, True]
+        )
+        extras_list = batch_stitch(
+            extras_list,
+            indices,
+            static_flags=[False]*len(extras_list)
         )
         
         curr_length = max(len(gs) for gs in generated_summaries)
@@ -42,38 +47,29 @@ class GeneratedSummary:
                 summary=summary_list[i, :, :max_length],
                 summary_length=summary_length_list[i],
                 loss_unnormalized=loss_unnormalized_list[i],
-                log_probs=log_probs_list[i, :, :(max_length-1)],
-                attentions=attentions_list[i, :, :(max_length-1)]
+                extras=[extra_list[i, :, :(max_length-1)] for extra_list in extras_list]
             )
             
             new_generated_summaries.append(new_generated_summary)
             
         return new_generated_summaries
     
-    def __init__(self, batch_length=None, device=None, start_index=None, end_index=None, summary=None, summary_length=None, valid_indices=None, loss_unnormalized=None, log_probs=None, attentions=None):
+    def __init__(self, batch_length=None, device=None, start_index=None, end_index=None, summary=None, summary_length=None, valid_indices=None, loss_unnormalized=None, extras=None):
         self.summary = torch.zeros((batch_length,1), device=device).long()+start_index if summary is None else summary
         self.summary_length = (torch.zeros(batch_length, device=device).long()-1) if summary_length is None else summary_length
         self.valid_indices = torch.arange(self.summary_length.size(0), device=self.summary_length.device)[self.summary_length < 0]
         self.end_index = end_index
         self.loss_unnormalized = torch.zeros(batch_length, device=device) if loss_unnormalized is None else loss_unnormalized
-        self.log_probs = torch.zeros(0, device=device) if log_probs is None else log_probs
-        self.attentions = torch.zeros(0, device=device) if attentions is None else attentions
+        self.extras = [] if extras is None else extras
         
     def get_summary_t(self):
         return self.summary[:,-1], self.valid_indices
     
-    def update(self, summary_tp1, loss_t, log_prob, attention):
+    def update(self, summary_tp1, loss_t, extras):
         self.summary = torch.cat((self.summary, summary_tp1.unsqueeze(-1)), -1)
         
         # add loss for each batch
-        self.loss_unnormalized[self.valid_indices] += loss_t
-        
-        # expand log prob to full batch dimention
-        full_log_prob = torch.zeros(self.summary_length.size(0), device=self.summary_length.device).scatter(0, self.valid_indices, log_prob).unsqueeze(-1)
-        # append log_prob to log_probs
-        self.log_probs = torch.cat((self.log_probs, full_log_prob), -1)
-        # append attention to attentions
-        self.attentions = torch.cat((self.attentions, attention.unsqueeze(-1)), -1)
+        self.loss_unnormalized += loss_t
         
         # get indices of instances that are not finished
         # and get indices of instances that are finished
@@ -84,6 +80,11 @@ class GeneratedSummary:
         # set summary length for ended time steps
         self.summary_length[ended_indices] = self.summary.size(1)
         
+        for i,extra in enumerate(extras):
+            if len(self) == 2:
+                self.extras.append(torch.zeros(0, device=extra.device))
+            self.extras[i] = torch.cat((self.extras[i], extra), 1)
+        
     def loss(self):
         return self.loss_unnormalized/(self.length().float()-1)
         
@@ -91,7 +92,8 @@ class GeneratedSummary:
         return (self.summary_length >= 0).sum() == self.summary_length.size(0) or len(self) > 300
         
     def return_info(self):
-        return self.summary.cpu().detach().numpy(), self.summary_length.cpu().detach().numpy(), self.log_probs.cpu().detach().numpy(), self.attentions.cpu().detach().numpy()
+        extras = (extra.cpu().detach().numpy() for extra in self.extras)
+        return (self.summary.cpu().detach().numpy(), self.summary_length.cpu().detach().numpy(), *extras)
     
     def length(self):
         length = torch.tensor(self.summary_length)
@@ -107,8 +109,7 @@ class GeneratedSummary:
             summary=torch.tensor(self.summary),
             summary_length=torch.tensor(self.summary_length),
             loss_unnormalized=torch.tensor(self.loss_unnormalized),
-            log_probs=torch.tensor(self.log_probs),
-            attentions=torch.tensor(self.attentions)
+            extras=[torch.tensor(extra) for extra in self.extras]
         )
         return gs_copy
     
@@ -155,7 +156,7 @@ class GeneratedSummaryHypothesis(Hypothesis):
         summary_t, valid_indices = self.generated_summary.get_summary_t()
 
         # take a time step
-        vocab_dist, h, c, attention, _ = self.model.timestep(valid_indices, summary_t, self.text_states, self.text_length, self.h, self.c, self.coverage)
+        vocab_dist, self.h, self.c, attention, _ = self.model.timestep(valid_indices, summary_t, self.text_states, self.text_length, self.h, self.c, self.coverage)
         
         hypotheses = []
         word_indices = torch.topk(vocab_dist, beam_size, dim=1)[1]
@@ -167,15 +168,25 @@ class GeneratedSummaryHypothesis(Hypothesis):
             summary_tp1[valid_indices] = word_indices[:,i]
 
             # calculate log prob, calculate covloss if aplicable, update coverage if aplicable
-            log_prob = self.model.calculate_log_prob(vocab_dist, summary_tp1[valid_indices])
+            log_prob = torch.zeros(self.batch_length, device=self.device)
+            log_prob[valid_indices] = self.model.calculate_log_prob(vocab_dist, summary_tp1[valid_indices])
             if self.model.with_coverage:
-                covloss = self.model.calculate_covloss(coverage[valid_indices], attention[valid_indices])
-                coverage += attention
+                covloss = torch.zeros(self.batch_length, device=self.device)
+                covloss[valid_indices] = self.model.calculate_covloss(self.coverage[valid_indices], attention[valid_indices])
+                self.coverage += attention
             
             # update global log prob
             loss_t = -log_prob + self.model.gamma*(covloss if self.model.with_coverage else 0)
-
-            generated_summary_temp.update(summary_tp1, loss_t, log_prob, attention)
+            
+            # trick so that duplicate batch examples aren't chosen in the top k
+            if i > 0:
+                loss_t[generated_summary_temp.summary_length > 0] = float('inf')
+            
+            # get any extra things the model wants to store in your summary object
+            extras = (log_prob.unsqueeze(-1), attention, *self.model.get_extras())
+            
+            # update summary
+            generated_summary_temp.update(summary_tp1, loss_t, extras)
             
             # add this generated summary as another hypothesis
             hyp = GeneratedSummaryHypothesis(self.model, generated_summary_temp, self.text_states, self.text_length, self.h, self.c, self.coverage)
@@ -195,9 +206,13 @@ class PointerInfo:
         self.max_num_oov = torch.max(self.oov_lengths)
         self.word_indices = torch.unique(text)
         self.valid_indices = None
+        self.current_p_gen = None
         
     def update_valid_indices(self, valid_indices):
         self.valid_indices = valid_indices
+        
+    def update_p_gen(self, p_gen):
+        self.current_p_gen = torch.zeros((self.text.size(0),1), device=self.text.device).scatter(0, self.valid_indices.unsqueeze(-1), p_gen)
         
     def get_text(self):
         return self.text[self.valid_indices] if self.valid_indices is not None else text
