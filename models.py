@@ -10,38 +10,68 @@ from model_helpers import GeneratedSummary, GeneratedSummaryHypothesis, PointerI
 # a) GeneratorModel
 # b) PointerGeneratorModel
 
-class GeneratorModel(nn.Module):
-    def __init__(self, word_vectors, start_index, end_index, num_hidden1=None, num_hidden2=None, with_coverage=False, gamma=1):
-        super(GeneratorModel, self).__init__()
+class Summarizer(nn.Module):
+    def __init__(self, word_vectors, start_index, end_index, num_hidden1=None, num_hidden2=None, with_coverage=False, gamma=1, with_pointer=False):
+        super(Summarizer, self).__init__()
+        
+        self.with_pointer = with_pointer
+        num_hidden1 = len(word_vectors[0])//2 if num_hidden1 is None else num_hidden1
+        
+        self.encoder = Encoder(word_vectors, num_hidden1)
+        if not self.with_pointer:
+            self.decoder = Decoder(word_vectors, start_index, end_index, num_hidden1=num_hidden1, num_hidden2=num_hidden2, with_coverage=with_coverage, gamma=gamma)
+        else:
+            self.decoder = PointerGenDecoder(word_vectors, start_index, end_index, num_hidden1=num_hidden1, num_hidden2=num_hidden2, with_coverage=with_coverage, gamma=gamma)
+        
+    def forward(self, text, text_length, text_oov_indices=None, summary=None, summary_length=None, beam_size=1):
+        text_states, (h, c) = self.encoder(text, text_length)
+        if self.with_pointer:
+            self.decoder.set_pointer_info(PointerInfo(text, text_oov_indices))
+        return self.decoder(text_states, text_length, h, c, summary=summary, summary_length=summary_length, beam_size=beam_size)
+
+class Encoder(nn.Module):
+    def __init__(self, word_vectors, num_hidden1):
+        super(Encoder, self).__init__()
         self.word_vectors = word_vectors
         num_features = len(self.word_vectors[0])
-        num_vocab = len(self.word_vectors)
-        self.start_index = start_index
-        self.end_index = end_index
-        self.num_hidden1 = num_features//2 if num_hidden1 is None else num_hidden1
-        self.num_hidden2 = num_features//2 if num_hidden2 is None else num_hidden2
-        self.with_coverage = with_coverage
-        self.gamma = gamma
+        self.num_hidden1 = num_hidden1
         
         self.text_encoder = TextEncoder(num_features, self.num_hidden1, bidirectional=True)
-        self.summary_decoder = nn.LSTMCell(num_features, self.num_hidden1)
-        self.context_nn = ContextVectorNN(self.num_hidden1*3, self.num_hidden2)
-        self.vocab_nn = VocabularyDistributionNN(self.num_hidden1*3, num_vocab+1)
-        
-    def forward(self, text, text_length, summary=None, summary_length=None, beam_size=1):
+    
+    def forward(self, text, text_length):
         # get batch with vectors from index batch
         text = [get_text_matrix(example[:text_length[i]], self.word_vectors, text.size(1))[0].unsqueeze(0) for i,example in enumerate(text)]
         text = torch.cat(text, 0)
         
         # run text through lstm encoder
         text_states, (h, c) = self.text_encoder(text, text_length)
+        h, c = h[:,0], c[:,0]
+        return text_states, (h, c)
+    
+class Decoder(nn.Module):
+    def __init__(self, word_vectors, start_index, end_index, num_hidden1, num_hidden2=None, with_coverage=False, gamma=1):
+        super(Decoder, self).__init__()
+        self.word_vectors = word_vectors
+        num_features = len(self.word_vectors[0])
+        num_vocab = len(self.word_vectors)
+        self.start_index = start_index
+        self.end_index = end_index
+        self.num_hidden1 = num_hidden1
+        self.num_hidden2 = num_features//2 if num_hidden2 is None else num_hidden2
+        self.with_coverage = with_coverage
+        self.gamma = gamma
         
+        self.summary_decoder = nn.LSTMCell(num_features, self.num_hidden1)
+        self.context_nn = ContextVectorNN(self.num_hidden1*3, self.num_hidden2)
+        self.vocab_nn = VocabularyDistributionNN(self.num_hidden1*3, num_vocab+1)
+        
+    def forward(self, text_states, text_length, h, c, summary=None, summary_length=None, beam_size=1):
         if summary is None:
-            return self.forward_generate(text_states, text_length, h[:,0], c[:,0], beam_size=beam_size)
+            return self.decode_generate(text_states, text_length, h, c, beam_size=beam_size)
         else:
-            return self.forward_supervised(text_states, text_length, h[:,0], c[:,0], summary, summary_length)
-        
-    def forward_generate(self, text_states, text_length, h, c, beam_size=1):
+            return self.decode_train(text_states, text_length, h, c, summary, summary_length)
+    
+    def decode_generate(self, text_states, text_length, h, c, beam_size=1):
         # initialize
         batch_length = text_states.size(0)
         device = text_states.device
@@ -56,7 +86,7 @@ class GeneratorModel(nn.Module):
     # implements the forward pass of the decoder for training
     # this uses teacher forcing, but conceivably one could try
     # and should add other algorithms for training
-    def forward_supervised(self, text_states, text_length, h, c, summary, summary_length):
+    def decode_train(self, text_states, text_length, h, c, summary, summary_length):
         if summary_length is None:
             raise Exception
         # initialize
@@ -73,7 +103,7 @@ class GeneratorModel(nn.Module):
             valid_indices = torch.nonzero((summary_length-t-1) > 0)[:,0]
             
             # take a time step
-            vocab_dist, h, c, attention, _ = self.timestep(valid_indices, summary_t, text_states, text_length, h, c, coverage)
+            vocab_dist, h, c, attention, _ = self.timestep_wrapper(valid_indices, summary_t, text_states, text_length, h, c, coverage)
             
             # get next time step words
             summary_tp1 = summary[:,t+1]
@@ -93,7 +123,7 @@ class GeneratorModel(nn.Module):
     
     # this timestep calls timestep forward and converts the inputs to and from just the valid batch examples
     # of those inputs at that time step
-    def timestep(self, valid_indices, summary_t, text_states, text_length, h, c, coverage):
+    def timestep_wrapper(self, valid_indices, summary_t, text_states, text_length, h, c, coverage):
         # inputs at valid indices at position t
         text_states_t = text_states[valid_indices]
         text_length_t = text_length[valid_indices]
@@ -102,7 +132,7 @@ class GeneratorModel(nn.Module):
         coverage_t = coverage[valid_indices]
         
         # do forward pass
-        vocab_dist, h_t, c_t, attention_t, context_vector = self.timestep_forward(summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t)
+        vocab_dist, h_t, c_t, attention_t, context_vector = self.timestep(summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t)
         
         # set new h, c, coverage, and loss
         h[valid_indices], c[valid_indices] = h_t, c_t
@@ -113,7 +143,7 @@ class GeneratorModel(nn.Module):
     # runs the inputs for a time step through the neural nets to get the vocab distribution for that timestep
     # and other necessary information: inputs to the next hidden state in the decoder, attention, and the context vector
     # (the context vector is only needed in the subclass of this so kinda bad style but whatever)
-    def timestep_forward(self, summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t):
+    def timestep(self, summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t):
         summary_vec_t = get_text_matrix(summary_t, self.word_vectors, len(summary_t))[0]
         
         h_t, c_t = self.summary_decoder(summary_vec_t, (h_t, c_t))
@@ -143,32 +173,34 @@ class GeneratorModel(nn.Module):
 # This model subclasses the generator model so that on each forward timestep, it averages the generator vocab distribution
 # with a pointer distribution obtained from the attention distribution and these are weighted by p_gen and 1-p_gen respectively
 # where p_gen is the probability of generating vs copying
-class PointerGeneratorModel(GeneratorModel):
-    def __init__(self, word_vectors, start_index, end_index, num_hidden1=None, num_hidden2=None, with_coverage=False, gamma=1):
-        super(PointerGeneratorModel, self).__init__(word_vectors, start_index, end_index, num_hidden1=num_hidden1, num_hidden2=num_hidden2, with_coverage=with_coverage, gamma=gamma)
+class PointerGenDecoder(Decoder):
+    def __init__(self, *args, **kwargs):
+        super(PointerGenDecoder, self).__init__(*args, **kwargs)
         self.probability_layer = ProbabilityNN(self.num_hidden1*3)
         self.pointer_info = None
-    
+        
+    def set_pointer_info(self, pointer_info):
+        self.pointer_info = pointer_info
+        
     # this is a little bit of a hacky solution, setting the pointer info as an object attribute temporarily
-    def forward(self, text, text_length, text_oov_indices, summary=None, summary_length=None, beam_size=1):
-        self.pointer_info = PointerInfo(text, text_oov_indices)
-        return_values = super(self.__class__, self).forward(text, text_length, summary=summary, summary_length=summary_length, beam_size=beam_size)
+    def forward(self, *args, **kwargs):
+        return_values = super(PointerGenDecoder, self).forward(*args, **kwargs)
         self.pointer_info = None
         return return_values
     
-    def forward_generate(self, *args, **kwargs):
-        return_values = super(self.__class__, self).forward_generate(*args, **kwargs)
+    def decode_generate(self, *args, **kwargs):
+        return_values = super(PointerGenDecoder, self).decode_generate(*args, **kwargs)
         for v in return_values:
             summary = v[1][0]
             summary[summary >= len(self.word_vectors)] -= (len(self.word_vectors)+1+self.pointer_info.max_num_oov)
         return return_values, self.pointer_info.text_oov_indices
     
-    def timestep(self, valid_indices, summary_t, text_states, text_length, h, c, coverage):
+    def timestep_wrapper(self, valid_indices, summary_t, text_states, text_length, h, c, coverage):
         self.pointer_info.update_valid_indices(valid_indices)
-        return_values = super(self.__class__, self).timestep(valid_indices, summary_t, text_states, text_length, h, c, coverage)
+        return_values = super(PointerGenDecoder, self).timestep_wrapper(valid_indices, summary_t, text_states, text_length, h, c, coverage)
         return return_values
     
-    def timestep_forward(self, summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t):
+    def timestep(self, summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t):
         if self.pointer_info is None:
             raise Exception
             
@@ -180,7 +212,7 @@ class PointerGeneratorModel(GeneratorModel):
         max_num_oov = self.pointer_info.max_num_oov
         
         # execute the normal timestep_forward function
-        vocab_dist, h_t, c_t, attention_t, context_vector = super(self.__class__, self).timestep_forward(summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t)
+        vocab_dist, h_t, c_t, attention_t, context_vector = super(PointerGenDecoder, self).timestep(summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t)
         new_vocab_size = (vocab_dist.size(0),vocab_dist.size(1)+max_num_oov)
         
         # create distrubtion over vocab using attention

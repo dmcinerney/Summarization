@@ -156,7 +156,7 @@ class GeneratedSummaryHypothesis(Hypothesis):
         summary_t, valid_indices = self.generated_summary.get_summary_t()
 
         # take a time step
-        vocab_dist, self.h, self.c, attention, _ = self.model.timestep(valid_indices, summary_t, self.text_states, self.text_length, self.h, self.c, self.coverage)
+        vocab_dist, self.h, self.c, attention, _ = self.model.timestep_wrapper(valid_indices, summary_t, self.text_states, self.text_length, self.h, self.c, self.coverage)
         
         hypotheses = []
         word_indices = torch.topk(vocab_dist, beam_size, dim=1)[1]
