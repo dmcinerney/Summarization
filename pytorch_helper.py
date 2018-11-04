@@ -180,10 +180,10 @@ class VariableLength(OneAtATimeDataset):
     def prepare_inputs(self, args, non_variable_args, lengths):
         raise NotImplementedError
 
-        
+
 def pack_padded_sequence_maintain_order(x, length, batch_first=False):
     length_sorted, indices = torch.sort(length, descending=True)
-    invert_indices = torch.arange(indices.shape[0])[indices]
+    invert_indices = torch.zeros_like(indices).scatter(0, indices, torch.arange(indices.shape[0], device=indices.device))
     x = pack_padded_sequence(x[indices], length_sorted, batch_first=batch_first)
     return x, invert_indices
 
@@ -275,7 +275,7 @@ def plot_learning_curves(training_values, validation_values=None, figure_name=No
         plt.savefig(figure_name+'_error.png')
     if show:
         plt.show()
-    
+
 def log_sum_exp(inputs, dim, weights=None):
     if weights is None:
         weights = torch.ones(inputs.size(), device=inputs.device)
@@ -314,7 +314,6 @@ def batch_stitch(tensor_lists, indices, static_flags=None):
         size[:indices.dim()] = indices.size()
         return_tensors.append(new_tensor.gather(0, indices.view(*size).expand(size[0],*new_tensor.shape[1:])))
     return return_tensors
-
 
 if __name__ == '__main__':
     print(ModelManipulator)

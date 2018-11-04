@@ -28,6 +28,21 @@ class TextEncoder(nn.Module):
     def num_hidden(self):
         return self.lstm.hidden_size
 
+# This class will be used to encode the h and c output of the text
+# in order to be input into the decoder
+class StateEncoder(nn.Module):
+    def __init__(self, num_hidden):
+        super(StateEncoder, self).__init__()
+        self.linearh = nn.Linear(num_hidden*2, num_hidden)
+        self.linearc = nn.Linear(num_hidden*2, num_hidden)
+        
+    def forward(self, h, c):
+        h1, h2 = h[:, 0], h[:, 1]
+        c1, c2 = c[:, 0], c[:, 1]
+        h = self.linearh(torch.cat((h1, h2), 1))
+        c = self.linearc(torch.cat((c1, c2), 1))
+        return h, c
+        
 # linear, activation, linear, softmax, sum where
 # input is:
 #     the hidden states from the TextEncoder, the current state from the SummaryDecoder

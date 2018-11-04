@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 from utils import get_text_matrix
 from beam_search import beam_search
-from submodules import TextEncoder, ContextVectorNN, VocabularyDistributionNN, ProbabilityNN
+from submodules import TextEncoder, StateEncoder, ContextVectorNN, VocabularyDistributionNN, ProbabilityNN
 from model_helpers import GeneratedSummary, GeneratedSummaryHypothesis, PointerInfo
 
 # Outline:
@@ -37,6 +37,7 @@ class Encoder(nn.Module):
         self.num_hidden1 = num_hidden1
         
         self.text_encoder = TextEncoder(num_features, self.num_hidden1, bidirectional=True)
+        self.state_encoder = StateEncoder(self.num_hidden1)
     
     def forward(self, text, text_length):
         # get batch with vectors from index batch
@@ -45,7 +46,9 @@ class Encoder(nn.Module):
         
         # run text through lstm encoder
         text_states, (h, c) = self.text_encoder(text, text_length)
-        h, c = h[:,0], c[:,0]
+#         h, c = h[:,0], c[:,0]
+        h, c = self.state_encoder(h, c)
+        
         return text_states, (h, c)
     
 class Decoder(nn.Module):
