@@ -5,6 +5,8 @@ import torch
 import numpy as np
 import json
 from pyrouge import Rouge155
+import pandas as pd
+from subprocess import call
 nlp = spacy.load('en', disable=['parser', 'tagger', 'ner'])
 
 def preprocess_text(text):
@@ -186,3 +188,12 @@ def produce_summary_files(dataloader, model, path, beam_size=1, max_num_batch=No
         print(i)
         if max_num_batch is not None and (i+1) >= max_num_batch:
             break
+            
+def run_rouge():
+#     call(["-Drouge.prop=rouge/ROUGE-2/rouge.properties"])
+#     call(["java", "-jar", "rouge/ROUGE-2/rouge2-1.2.jar"])
+    df = pd.read_csv("rouge/ROUGE-2/results.csv")
+    rougel = df[df['ROUGE-Type'] == 'ROUGE-L+StopWordRemoval']['Avg_F-Score'].mean()*100
+    rouge1 = df[df['ROUGE-Type'] == 'ROUGE-1+StopWordRemoval']['Avg_F-Score'].mean()*100
+    rouge2 = df[df['ROUGE-Type'] == 'ROUGE-2+StopWordRemoval']['Avg_F-Score'].mean()*100
+    print(rouge1, rouge2, rougel)

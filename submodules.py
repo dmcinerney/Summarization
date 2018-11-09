@@ -16,7 +16,7 @@ import pdb
 class TextEncoder(nn.Module):
     def __init__(self, *args, **kwargs):
         super(TextEncoder, self).__init__()
-        self.lstm = nn.LSTM(*args, **kwargs)
+        self.lstm = nn.LSTM(*args, **kwargs, batch_first=True)
         
     def forward(self, x, length):
         x, invert_indices = pack_padded_sequence_maintain_order(x, length, batch_first=True)
@@ -55,8 +55,6 @@ class ContextVectorNN(nn.Module):
     def __init__(self, num_features, num_hidden):
         super(ContextVectorNN, self).__init__()
         num_inputs = num_features+1
-#         self.conv1 = nn.Conv1d(num_inputs, num_hidden, kernel_size=1)
-#         self.conv2 = nn.Conv1d(num_hidden, 1, kernel_size=1)
         self.linear1 = nn.Linear(num_inputs, num_hidden)
         self.linear2 = nn.Linear(num_hidden, 1)
         
