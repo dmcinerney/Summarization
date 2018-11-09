@@ -93,7 +93,7 @@ class GeneratedSummary:
         
     def return_info(self):
         extras = (extra.cpu().detach().numpy() for extra in self.extras)
-        return (self.summary.cpu().detach().numpy(), self.summary_length.cpu().detach().numpy(), *extras)
+        return (self.summary.cpu().detach().numpy(), self.summary_length.cpu().detach().numpy(), self.loss().cpu().detach().numpy(), *extras)
     
     def length(self):
         length = torch.tensor(self.summary_length)

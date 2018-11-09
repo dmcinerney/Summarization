@@ -1,6 +1,6 @@
 import pandas as pd
 from pytorch_helper import VariableLength
-from utils import preprocess_text, get_text_indices, train_word2vec_model, DataFrameDataset
+from utils import preprocess_text, get_text_indices, train_word2vec_model, DataFrameDataset, Preprocessor
 import torch
 
 class NewsroomDataset(DataFrameDataset):
@@ -32,26 +32,19 @@ class NewsroomDataset(DataFrameDataset):
 
 # Newsroom Dataset Wrapper
 class NewsroomDataset_word2vec(VariableLength):
-    def __init__(self, dataset, preprocess_model, with_oov=False):
+    def __init__(self, dataset, preprocessor, with_oov=False):
         self.dataset = dataset
-        self.word_indices = {}
-        self.word_vectors = torch.zeros((len(preprocess_model.wv.vocab), preprocess_model.vector_size))
-        self.words = []
-        for i,k in enumerate(preprocess_model.wv.vocab):
-            v = preprocess_model.wv[k]
-            self.word_indices[k] = i
-            self.word_vectors[i] = torch.tensor(v)
-            self.words.append(k)
+        self.preprocessor = preprocessor
         self.with_oov = with_oov
-            
+        
     def get_raw_inputs(self, i):
         return self.dataset.preprocess(self.dataset.indices[i]), None
     
     def prepare_inputs(self, v_args, nv_args, lengths):
         text, summary = v_args
         text_length_max, summary_length_max = lengths
-        text, text_length, text_oov_indices = get_text_indices(text, self.word_indices, text_length_max)
-        summary, summary_length, _ = get_text_indices(summary, self.word_indices, summary_length_max, oov_indices=text_oov_indices)
+        text, text_length, text_oov_indices = self.preprocessor.get_text_indices(text, text_length_max)
+        summary, summary_length, _ = self.preprocessor.get_text_indices(summary, summary_length_max, oov_indices=text_oov_indices)
         return_dict = dict(text=text, text_length=text_length, summary=summary, summary_length=summary_length)
         if self.with_oov:
             return_dict['text_oov_indices'] = text_oov_indices
@@ -70,9 +63,10 @@ def get_newsroom_datasets(with_oov=False):
 #     print(len(train), len(dev), len(test))
 #     newsroom_dataset_train = NewsroomDataset(train)
 #     word2vec_model = train_word2vec_model("data/word2vec_min5_newsroom.model", document_iterator=newsroom_dataset_train.text_iterator(), size=100, window=5, min_count=5, workers=4)
-#     newsroom_dataset_train_word2vec = NewsroomDataset_word2vec(newsroom_dataset_train, word2vec_model, 73733)
-#     newsroom_dataset_dev_word2vec = NewsroomDataset_word2vec(NewsroomDataset(dev), word2vec_model, 73733)
-#     newsroom_dataset_test_word2vec = NewsroomDataset_word2vec(NewsroomDataset(test), word2vec_model, 73733)
+#     preprocessor = Preprocessor(word2vec_model)
+#     newsroom_dataset_train_word2vec = NewsroomDataset_word2vec(newsroom_dataset_train, preprocessor, 73733)
+#     newsroom_dataset_dev_word2vec = NewsroomDataset_word2vec(NewsroomDataset(dev), preprocessor, 73733)
+#     newsroom_dataset_test_word2vec = NewsroomDataset_word2vec(NewsroomDataset(test), preprocessor, 73733)
     
     dev = pd.read_json('data/dev_trimmed.data', lines=True, compression='gzip')
     train_indices, dev_indices, test_indices = get_indices_split(len(dev),.6,.2)
@@ -81,7 +75,8 @@ def get_newsroom_datasets(with_oov=False):
     newsroom_dataset_train = NewsroomDataset(dev, train_indices)
     size, min_count = 100, 5
     word2vec_model = train_word2vec_model("models/word2vec_%id_min%i_newsroom.model" % (size, min_count), document_iterator=newsroom_dataset_train.text_iterator(), size=size, window=5, min_count=min_count, workers=4)
-    newsroom_dataset_train_word2vec = NewsroomDataset_word2vec(newsroom_dataset_train, word2vec_model, with_oov=with_oov)
-    newsroom_dataset_dev_word2vec = NewsroomDataset_word2vec(NewsroomDataset(dev, dev_indices), word2vec_model, with_oov=with_oov)
-    newsroom_dataset_test_word2vec = NewsroomDataset_word2vec(NewsroomDataset(dev, test_indices), word2vec_model, with_oov=with_oov)
-    return newsroom_dataset_train_word2vec, newsroom_dataset_dev_word2vec, newsroom_dataset_test_word2vec
+    preprocessor = Preprocessor(word2vec_model)
+    newsroom_dataset_train_word2vec = NewsroomDataset_word2vec(newsroom_dataset_train, preprocessor, with_oov=with_oov)
+    newsroom_dataset_dev_word2vec = NewsroomDataset_word2vec(NewsroomDataset(dev, dev_indices), preprocessor, with_oov=with_oov)
+    newsroom_dataset_test_word2vec = NewsroomDataset_word2vec(NewsroomDataset(dev, test_indices), preprocessor, with_oov=with_oov)
+    return newsroom_dataset_train_word2vec, newsroom_dataset_dev_word2vec, newsroom_dataset_test_word2vec, preprocessor

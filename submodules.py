@@ -3,6 +3,8 @@ from torch import nn
 from torch.nn import functional as F
 from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order
 
+import pdb
+
 # Description: this file contains the sub neural networks that are used in the summarization models
 # Outline:
 # a) TextEncoder
@@ -39,8 +41,8 @@ class StateEncoder(nn.Module):
     def forward(self, h, c):
         h1, h2 = h[:, 0], h[:, 1]
         c1, c2 = c[:, 0], c[:, 1]
-        h = self.linearh(torch.cat((h1, h2), 1))
-        c = self.linearc(torch.cat((c1, c2), 1))
+        h = F.relu(self.linearh(torch.cat((h1, h2), 1)))
+        c = F.relu(self.linearc(torch.cat((c1, c2), 1)))
         return h, c
         
 # linear, activation, linear, softmax, sum where
@@ -53,24 +55,24 @@ class ContextVectorNN(nn.Module):
     def __init__(self, num_features, num_hidden):
         super(ContextVectorNN, self).__init__()
         num_inputs = num_features+1
-        self.conv1 = nn.Conv1d(num_inputs, num_hidden, kernel_size=1)
-        self.conv2 = nn.Conv1d(num_hidden, 1, kernel_size=1)
+#         self.conv1 = nn.Conv1d(num_inputs, num_hidden, kernel_size=1)
+#         self.conv2 = nn.Conv1d(num_hidden, 1, kernel_size=1)
+        self.linear1 = nn.Linear(num_inputs, num_hidden)
+        self.linear2 = nn.Linear(num_hidden, 1)
         
     def forward(self, text_states, text_length, summary_current_state, coverage):
-        text_states = text_states.transpose(-1,-2)
-        sizes = [-1]*text_states.dim()
-        sizes[-1] = text_states.size(-1)
-        summary_current_states = summary_current_state.unsqueeze(-1).expand(*sizes)
-        inputs = torch.cat([text_states, summary_current_states, coverage], -2)
-        scores = self.conv2(torch.tanh(self.conv1(inputs)))
+        summary_current_states = summary_current_state.unsqueeze(1).expand(*text_states.shape[:2],summary_current_state.size(1))
+        coverages = torch.transpose(coverage,1,2)
+        inputs = torch.cat((text_states, summary_current_states, coverages), 2)
+        scores = self.linear2(torch.tanh(self.linear1(inputs))).squeeze(2)
         
         # indicator of elements that are within the length of that instance
-        indicator = torch.arange(scores.size(2), device=scores.device).expand(*scores.size()) < text_length.view(-1,1,1)
-        attention = F.softmax(scores, -1)*indicator.float()
-        attention = attention/attention.sum(2, keepdim=True)
+        indicator = torch.arange(scores.size(1), device=scores.device).view(1,-1) < text_length.view(-1,1)
+        attention = F.softmax(scores, 1)*indicator.float()
+        attention = attention/attention.sum(1, keepdim=True)
         
-        context_vector = (attention*text_states).sum(-1)
-        return context_vector, attention
+        context_vector = (attention.unsqueeze(2)*text_states).sum(1)
+        return context_vector, attention.unsqueeze(1)
 
 # linear, softmax
 # NOTE: paper says two linear lays to reduce parameters!

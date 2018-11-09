@@ -11,17 +11,18 @@ from model_helpers import GeneratedSummary, GeneratedSummaryHypothesis, PointerI
 # b) PointerGeneratorModel
 
 class Summarizer(nn.Module):
-    def __init__(self, word_vectors, start_index, end_index, num_hidden1=None, num_hidden2=None, with_coverage=False, gamma=1, with_pointer=False):
+    def __init__(self, preprocessor, start_index, end_index, num_hidden1=None, num_hidden2=None, with_coverage=False, gamma=1, with_pointer=False):
         super(Summarizer, self).__init__()
         
+        self.preprocessor = preprocessor
         self.with_pointer = with_pointer
-        num_hidden1 = len(word_vectors[0])//2 if num_hidden1 is None else num_hidden1
+        num_hidden1 = len(preprocessor.word_vectors[0])//2 if num_hidden1 is None else num_hidden1
         
-        self.encoder = Encoder(word_vectors, num_hidden1)
+        self.encoder = Encoder(preprocessor, num_hidden1)
         if not self.with_pointer:
-            self.decoder = Decoder(word_vectors, start_index, end_index, num_hidden1=num_hidden1, num_hidden2=num_hidden2, with_coverage=with_coverage, gamma=gamma)
+            self.decoder = Decoder(preprocessor, start_index, end_index, num_hidden1=num_hidden1, num_hidden2=num_hidden2, with_coverage=with_coverage, gamma=gamma)
         else:
-            self.decoder = PointerGenDecoder(word_vectors, start_index, end_index, num_hidden1=num_hidden1, num_hidden2=num_hidden2, with_coverage=with_coverage, gamma=gamma)
+            self.decoder = PointerGenDecoder(preprocessor, start_index, end_index, num_hidden1=num_hidden1, num_hidden2=num_hidden2, with_coverage=with_coverage, gamma=gamma)
         
     def forward(self, text, text_length, text_oov_indices=None, summary=None, summary_length=None, beam_size=1):
         text_states, (h, c) = self.encoder(text, text_length)
@@ -30,10 +31,10 @@ class Summarizer(nn.Module):
         return self.decoder(text_states, text_length, h, c, summary=summary, summary_length=summary_length, beam_size=beam_size)
 
 class Encoder(nn.Module):
-    def __init__(self, word_vectors, num_hidden1):
+    def __init__(self, preprocessor, num_hidden1):
         super(Encoder, self).__init__()
-        self.word_vectors = word_vectors
-        num_features = len(self.word_vectors[0])
+        self.preprocessor = preprocessor
+        num_features = len(self.preprocessor.word_vectors[0])
         self.num_hidden1 = num_hidden1
         
         self.text_encoder = TextEncoder(num_features, self.num_hidden1, bidirectional=True)
@@ -41,7 +42,7 @@ class Encoder(nn.Module):
     
     def forward(self, text, text_length):
         # get batch with vectors from index batch
-        text = [get_text_matrix(example[:text_length[i]], self.word_vectors, text.size(1))[0].unsqueeze(0) for i,example in enumerate(text)]
+        text = [self.preprocessor.get_text_matrix(example[:text_length[i]], text.size(1))[0].unsqueeze(0) for i,example in enumerate(text)]
         text = torch.cat(text, 0)
         
         # run text through lstm encoder
@@ -52,11 +53,11 @@ class Encoder(nn.Module):
         return text_states, (h, c)
     
 class Decoder(nn.Module):
-    def __init__(self, word_vectors, start_index, end_index, num_hidden1, num_hidden2=None, with_coverage=False, gamma=1):
+    def __init__(self, preprocessor, start_index, end_index, num_hidden1, num_hidden2=None, with_coverage=False, gamma=1):
         super(Decoder, self).__init__()
-        self.word_vectors = word_vectors
-        num_features = len(self.word_vectors[0])
-        num_vocab = len(self.word_vectors)
+        self.preprocessor = preprocessor
+        num_features = len(self.preprocessor.word_vectors[0])
+        num_vocab = len(self.preprocessor.word_vectors)
         self.start_index = start_index
         self.end_index = end_index
         self.num_hidden1 = num_hidden1
@@ -84,7 +85,7 @@ class Decoder(nn.Module):
         
         results = beam_search(hypothesis.next_hypotheses(beam_size), beam_size)
         
-        return [(r.generated_summary.loss(), r.generated_summary.return_info()) for r in results]
+        return [r.generated_summary.return_info() for r in results]
 
     # implements the forward pass of the decoder for training
     # this uses teacher forcing, but conceivably one could try
@@ -147,7 +148,7 @@ class Decoder(nn.Module):
     # and other necessary information: inputs to the next hidden state in the decoder, attention, and the context vector
     # (the context vector is only needed in the subclass of this so kinda bad style but whatever)
     def timestep(self, summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t):
-        summary_vec_t = get_text_matrix(summary_t, self.word_vectors, len(summary_t))[0]
+        summary_vec_t = self.preprocessor.get_text_matrix(summary_t, len(summary_t))[0]
         
         h_t, c_t = self.summary_decoder(summary_vec_t, (h_t, c_t))
         context_vector, attention_t = self.context_nn(text_states_t, text_length_t, h_t, coverage_t)
@@ -194,9 +195,9 @@ class PointerGenDecoder(Decoder):
     def decode_generate(self, *args, **kwargs):
         return_values = super(PointerGenDecoder, self).decode_generate(*args, **kwargs)
         for v in return_values:
-            summary = v[1][0]
-            summary[summary >= len(self.word_vectors)] -= (len(self.word_vectors)+1+self.pointer_info.max_num_oov)
-        return return_values, self.pointer_info.text_oov_indices
+            summary = v[0]
+            summary[summary >= len(self.preprocessor.word_vectors)] -= (len(self.preprocessor.word_vectors)+1+self.pointer_info.max_num_oov)
+        return return_values
     
     def timestep_wrapper(self, valid_indices, summary_t, text_states, text_length, h, c, coverage):
         self.pointer_info.update_valid_indices(valid_indices)
@@ -254,7 +255,7 @@ class PointerGenDecoder(Decoder):
     
     # this changes it so that only words that don't appear in the text and the static vocab are mapped to the oov index
     def map_oov_indices(self, indices):
-        indices[(indices.int() < -self.pointer_info.get_oov_lengths()).squeeze(0)] = len(self.word_vectors)
+        indices[(indices.int() < -self.pointer_info.get_oov_lengths()).squeeze(0)] = len(self.preprocessor.word_vectors)
         
     def get_extras(self):
         return (self.pointer_info.current_p_gen,)
