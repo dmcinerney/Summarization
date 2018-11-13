@@ -7,6 +7,7 @@ import json
 from pyrouge import Rouge155
 import pandas as pd
 from subprocess import call
+from pytorch_helper import IndicesIterator
 nlp = spacy.load('en', disable=['parser', 'tagger', 'ner'])
 
 def preprocess_text(text):
@@ -14,43 +15,6 @@ def preprocess_text(text):
     text = [t.text.lower() for t in nlp(text)]
     text = ['qqq' if any(char.isdigit() for char in word) else word for word in text]
     return text
-
-def get_text_indices(text, word_indices, max_length, oov_indices=None):
-    if max_length < len(text):
-        raise Exception
-    oov_indices = {} if oov_indices is None else dict(oov_indices)
-    indices = torch.zeros((max_length))
-    for i,token in enumerate(text):
-        if token in word_indices:
-            indices[i] = torch.tensor(word_indices[token]).long()
-        else:
-            if token not in oov_indices.keys():
-                oov_indices[token] = len(oov_indices)
-            indices[i] = torch.tensor(-1-oov_indices[token]).long()
-    return indices.int(), torch.tensor(len(text)), oov_indices
-
-def get_index_words(text_indices, words, oov_words=None):
-    word_list = []
-    for i in text_indices:
-        if i < len(words) and i >= 0:
-            word = words[i]
-        else:
-            i_temp = len(oov_words)+len(words)-i-1 if oov_words is not None and i >= len(words) else -i-1
-            if oov_words is None or i_temp >= len(oov_words):
-                word = 'oov'
-            else:
-                word = oov_words[i_temp]
-        word_list.append(word)
-    return word_list
-
-def get_text_matrix(text_indices, word_vectors, max_length):
-    if max_length < len(text_indices):
-        raise Exception
-    vectors = torch.zeros((max_length, len(word_vectors[0])), device=text_indices.device)
-    for i,index in enumerate(text_indices):
-        vectors[i,:] = torch.tensor(word_vectors[index])\
-                       if index >= 0 and index < len(word_vectors) else torch.zeros(len(word_vectors[0]))#torch.randn(len(word_vectors[0]))
-    return vectors.float(), torch.tensor(len(text_indices))
 
 def train_word2vec_model(filename, document_iterator=None, force_reload=False, **kwargs):
     if force_reload or not os.path.isfile(filename):
@@ -132,7 +96,7 @@ class Preprocessor:
         vectors = torch.zeros((max_length, len(self.word_vectors[0])), device=text_indices.device)
         for i,index in enumerate(text_indices):
             vectors[i,:] = torch.tensor(self.word_vectors[index])\
-                           if index >= 0 and index < len(self.word_vectors) else torch.zeros(len(self.word_vectors[0]))#torch.randn(len(word_vectors[0]))
+                           if index >= 0 and index < len(self.word_vectors) else torch.randn(len(self.word_vectors[0]))#torch.zeros(len(self.word_vectors[0]))
         return vectors.float(), torch.tensor(len(text_indices))
         
 def produce_attention_visualization_file(filename, text, reference_summary, decoded_summary, attentions, p_gens):
@@ -181,9 +145,10 @@ def produce_batch_summary_files(batch, model, path, beam_size=1, start_index=0):
         i += 1
     return i
     
-def produce_summary_files(dataloader, model, path, beam_size=1, max_num_batch=None):
+def produce_summary_files(dataset, batch_size, model, path, beam_size=1, max_num_batch=None):
     start_index = 0
-    for i,batch in enumerate(dataloader):
+    for i,indices in IndicesIterator(len(dataset), batch_size=batch_size, shuffle=True):
+        batch = dataset[indices]
         start_index = produce_batch_summary_files(batch, model, path, beam_size=beam_size, start_index=start_index)
         print(i)
         if max_num_batch is not None and (i+1) >= max_num_batch:
@@ -193,7 +158,8 @@ def run_rouge():
 #     call(["-Drouge.prop=rouge/ROUGE-2/rouge.properties"])
 #     call(["java", "-jar", "rouge/ROUGE-2/rouge2-1.2.jar"])
     df = pd.read_csv("rouge/ROUGE-2/results.csv")
-    rougel = df[df['ROUGE-Type'] == 'ROUGE-L+StopWordRemoval']['Avg_F-Score'].mean()*100
     rouge1 = df[df['ROUGE-Type'] == 'ROUGE-1+StopWordRemoval']['Avg_F-Score'].mean()*100
     rouge2 = df[df['ROUGE-Type'] == 'ROUGE-2+StopWordRemoval']['Avg_F-Score'].mean()*100
+    rougel = df[df['ROUGE-Type'] == 'ROUGE-L+StopWordRemoval']['Avg_F-Score'].mean()*100
     print(rouge1, rouge2, rougel)
+    return df

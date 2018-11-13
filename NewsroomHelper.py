@@ -1,6 +1,6 @@
 import pandas as pd
 from pytorch_helper import VariableLength
-from utils import preprocess_text, get_text_indices, train_word2vec_model, DataFrameDataset, Preprocessor
+from utils import preprocess_text, train_word2vec_model, DataFrameDataset, Preprocessor
 import torch
 
 class NewsroomDataset(DataFrameDataset):
@@ -68,11 +68,14 @@ def get_newsroom_datasets(with_oov=False):
 #     newsroom_dataset_dev_word2vec = NewsroomDataset_word2vec(NewsroomDataset(dev), preprocessor, 73733)
 #     newsroom_dataset_test_word2vec = NewsroomDataset_word2vec(NewsroomDataset(test), preprocessor, 73733)
     
+    train = pd.read_json('data/train_trimmed.data', lines=True, compression='gzip')
     dev = pd.read_json('data/dev_trimmed.data', lines=True, compression='gzip')
-    train_indices, dev_indices, test_indices = get_indices_split(len(dev),.6,.2)
+#     train_indices, _, _ = get_indices_split(300,.9,.05)
+#     train_indices, _, _ = get_indices_split(len(train),.9,.05)
+    dev_indices, test_indices, _ = get_indices_split(len(dev),.45,.45)
 #     train_indices, dev_indices, test_indices = get_indices_split(1000,.6,.2)
-    print(len(train_indices), len(dev_indices), len(test_indices))
-    newsroom_dataset_train = NewsroomDataset(dev, train_indices)
+    print(train.shape[0], len(dev_indices), len(test_indices))
+    newsroom_dataset_train = NewsroomDataset(train)
     size, min_count = 100, 5
     word2vec_model = train_word2vec_model("models/word2vec_%id_min%i_newsroom.model" % (size, min_count), document_iterator=newsroom_dataset_train.text_iterator(), size=size, window=5, min_count=min_count, workers=4)
     preprocessor = Preprocessor(word2vec_model)

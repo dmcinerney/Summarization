@@ -89,7 +89,7 @@ class GeneratedSummary:
         return self.loss_unnormalized/(self.length().float()-1)
         
     def is_done(self):
-        return (self.summary_length >= 0).sum() == self.summary_length.size(0) or len(self) > 300
+        return (self.summary_length >= 0).sum() == self.summary_length.size(0) or len(self) > 200
         
     def return_info(self):
         extras = (extra.cpu().detach().numpy() for extra in self.extras)

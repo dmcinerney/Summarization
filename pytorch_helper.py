@@ -6,6 +6,10 @@ from torch.utils.data import Dataset
 from torch.utils.data.dataset import random_split
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import matplotlib.pyplot as plt
+import os
+import shutil
+import pickle as pkl
+import pdb
 
 class ModelManipulator:
     # inputs:
@@ -60,43 +64,19 @@ class ModelManipulator:
             error_value = None
         return loss_value, error_value
 
-    def train(self, train_dataloader, epochs, dataset_val=None, stats_every=1000, verbose_every=100):
-        train_steps, train_losses, train_errors, validation_steps, validation_losses, validation_errors = [], [], [], [], [], []
-        step = 0
-        for i in range(epochs):
-            for j,inputs in enumerate(train_dataloader):
+    def train(self, dataset_train, batch_size, epochs, dataset_val=None, stats_every=1000, verbose_every=100, checkpoint_every=1000, checkpoint_path=None, restart=True):
+        tt = TrainingTracker(self, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart)
+        i, indices_iterator = tt.initialize()
+        while i < epochs:
+            indices_iterator = IndicesIterator(len(dataset_train), batch_size=batch_size, shuffle=True) if indices_iterator is None else indices_iterator
+            for j,indices in indices_iterator:
+                inputs = dataset_train[indices]
                 train_loss, train_error = self.step(inputs, training=True)
-                train_losses.append(train_loss)
-                train_errors.append(train_error)
-                train_steps.append(step)
-                if dataset_val and step % stats_every == 0:
-                    inputs_val = random_subset(dataset_val, train_dataloader.batch_size)[:]
-                    val_loss, val_error = self.step(inputs_val)
-                    validation_losses.append(val_loss)
-                    validation_errors.append(val_error)
-                    validation_steps.append(step)
-                if step % verbose_every == 0:
-                    # needed because error can sometimes be None
-                    printed_train_error = str(train_error)
-                    print("epoch: %i, batch: %i, train_loss: %f, train_error: %s" % (i, j, train_loss, printed_train_error))
-                step += 1
+                tt.step(i, j, train_loss, train_error, indices.size(0), indices_iterator)
+            indices_iterator = None
+            i += 1
+        return tt.end(i, j, indices_iterator)
 
-        if verbose_every:
-            print("%i epochs with %i batches per epoch done" % (i+1, j+1))
-
-        if dataset_val:
-            return (np.array(train_steps),\
-                    np.array(train_losses),\
-                    np.array(train_errors),),\
-                   (np.array(validation_steps),\
-                    np.array(validation_losses),\
-                    np.array(validation_errors),)
-        else:
-            return np.array(train_steps),\
-                   np.array(train_losses),\
-                   np.array(train_errors)
-    
-    
     # batch_dim is a tuple that tells you an input key, and the batch dimension for that input
     # error function must never return None for this function to work
     def test(self, test_dataloader, batch_dim=None):
@@ -113,7 +93,108 @@ class ModelManipulator:
             else:
                 error_running_average = None
         return loss_running_average.average, error_running_average.average
-                
+
+class TrainingTracker:
+    def __init__(self, model_manip, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart):
+        self.train_steps = []
+        self.train_losses = []
+        self.train_errors = []
+        self.validation_steps = []
+        self.validation_losses = []
+        self.validation_errors = []
+
+        self.model_manip = model_manip
+        self.dataset_val = dataset_val
+        self.stats_every = stats_every
+        self.verbose_every = verbose_every
+        self.checkpoint_every = checkpoint_every
+        self.checkpoint_path = checkpoint_path
+        self.restart = restart
+        self.step_num = 0
+        self.last_step_num = -1
+
+        if self.checkpoint_path is not None and self.restart:
+            shutil.rmtree(self.checkpoint_path)
+            os.mkdir(self.checkpoint_path)
+
+    def initialize(self):
+        if self.checkpoint_path is not None and not self.restart:
+            # get epoch
+            if os.path.exists(os.path.join(self.checkpoint_path, "iternum.txt")):
+                with open(os.path.join(self.checkpoint_path, "iternum.txt"), "r") as iternumfile:
+                    i, self.step_num = eval(iternumfile.read())
+                    self.step_num += 1
+            else:
+                return 0, None
+            # get indices iterator
+            if os.path.exists(os.path.join(self.checkpoint_path, "indices_iterator.pkl")):
+                with open(os.path.join(self.checkpoint_path, "indices_iterator.pkl"), "rb") as iteratorfile:
+                    indices_iterator = pkl.load(iteratorfile)
+            else:
+                return 0, None
+            return i, indices_iterator
+        else:
+            return 0, None
+            
+    def step(self, i, j, train_loss, train_error, batch_size, indices_iterator):
+        self.train_losses.append(train_loss)
+        self.train_errors.append(train_error)
+        self.train_steps.append(self.step_num)
+        if self.dataset_val and self.step_num % self.stats_every == 0:
+            inputs_val = random_subset(self.dataset_val, batch_size)[:]
+            val_loss, val_error = self.model_manip.step(inputs_val)
+            self.validation_losses.append(val_loss)
+            self.validation_errors.append(val_error)
+            self.validation_steps.append(self.step_num)
+        if self.step_num % self.verbose_every == 0:
+            # needed because error can sometimes be None
+            printed_train_error = str(train_error)
+            print("epoch: %i, batch: %i, train_loss: %f, train_error: %s" % (i, j, train_loss, printed_train_error))
+        # check for nans in model
+        param_sum = sum(p.sum() for p in self.model_manip.model.parameters())
+        if param_sum != param_sum:
+            raise Exception
+        # save checkpoint
+        if self.checkpoint_path is not None and self.step_num % self.checkpoint_every == 0:
+            self.save_checkpoint(i, indices_iterator)
+        self.step_num += 1
+        
+    def save_checkpoint(self, i, indices_iterator):
+        for s in np.arange(len(self.train_steps))[np.array(self.train_steps) > self.last_step_num]:
+            with open(os.path.join(self.checkpoint_path, "train_info.txt"), "a") as train_info:
+                train_info.write(str([self.train_steps[s], self.train_losses[s], self.train_errors[s]])+"\n")
+        for s in np.arange(len(self.validation_steps))[np.array(self.validation_steps) > self.last_step_num]:
+            with open(os.path.join(self.checkpoint_path, "val_info.txt"), "a") as val_info:
+                val_info.write(str([self.validation_steps[s], self.validation_losses[s], self.validation_errors[s]])+"\n")
+        # save model
+        torch.save(self.model_manip.model, os.path.join(self.checkpoint_path, "model.model"))
+        # save epoch
+        with open(os.path.join(self.checkpoint_path, "iternum.txt"), "w") as iternumfile:
+            iternumfile.write(str([i,self.step_num]))
+        # save indices iterator
+        with open(os.path.join(self.checkpoint_path, "indices_iterator.pkl"), "wb") as iteratorfile:
+            pkl.dump(indices_iterator, iteratorfile)
+        self.last_step_num = self.step_num
+
+    def end(self, i, j, indices_iterator):
+        if self.checkpoint_path is not None and not (self.step_num % self.checkpoint_every == 0):
+            self.save_checkpoint(i, indices_iterator)
+
+        if self.verbose_every is not None:
+            print("%i epochs with %i batches per epoch done" % (i, j))
+
+        if self.dataset_val is not None:
+            return (np.array(self.train_steps),\
+                    np.array(self.train_losses),\
+                    np.array(self.train_errors),),\
+                   (np.array(self.validation_steps),\
+                    np.array(self.validation_losses),\
+                    np.array(self.validation_errors),)
+        else:
+            return np.array(self.train_steps),\
+                   np.array(self.train_losses),\
+                   np.array(self.train_errors)
+
 class RunningAverage:
     def __init__(self):
         self._weight_sum = 0
@@ -198,22 +279,27 @@ def pad_packed_sequence_maintain_order(output, other_args, invert_indices, batch
 def print_loop(i, length, every=1000):
     if (i+1) % every == 0 or i == length-1:
         print("%d/%d" % (i+1, length))
-
-# loads batches that are of different lengths
-class VariableBatchDataLoader:
-    def __init__(self, dataset, batch_size, shuffle=False):
-        self.dataset = dataset
+    
+class IndicesIterator:
+    def __init__(self, dataset_length, batch_size, shuffle):
+        self.indices = np.arange(dataset_length)
+        if shuffle:
+            np.random.shuffle(self.indices)
+        self.indices = torch.tensor(self.indices)
         self.batch_size = batch_size
-        self.indices = np.arange(len(dataset))
-        self.shuffle = shuffle
+        self.i = 0
         
     def __iter__(self):
-        if self.shuffle:
-            np.random.shuffle(self.indices)
-        indices = torch.tensor(self.indices)
-        for i in range(len(indices)//self.batch_size):
-            offset = int(i*self.batch_size)
-            yield self.dataset[indices[offset:offset+self.batch_size]]
+        return self
+
+    def __next__(self):
+        if (self.i*self.batch_size) < len(self.indices):
+            offset = int(self.i*self.batch_size)
+            i_temp = self.i
+            self.i += 1
+            return i_temp, self.indices[offset:offset+self.batch_size]
+        else:
+            raise StopIteration
             
 class MultiDatasetDataLoader:
     def __init__(self, datasets, **kwargs):
@@ -258,23 +344,58 @@ def dicts_into_batch(list_of_dicts):
         return_dict[key] = torch.cat(value, 0) if isinstance(value[0], torch.Tensor) else value
     return return_dict
 
-def plot_learning_curves(training_values, validation_values=None, figure_name=None, show=True):
+def plot_checkpoint(checkpoint_path, figure_name=None, show=True, average_over=1):
+    training_values = ([], [], [])
+    with open(os.path.join(checkpoint_path, "train_info.txt"), "r") as traininfo_file:
+        for line in traininfo_file:
+            step, loss, error = eval(line)
+            training_values[0].append(step)
+            training_values[1].append(loss)
+            training_values[2].append(error)
+    training_values = (np.array(v) for v in training_values)
+    if os.path.exists(os.path.join(checkpoint_path, "val_info.txt")):
+        validation_values = ([], [], [])
+        with open(os.path.join(checkpoint_path, "val_info.txt"), "r") as valinfo_file:
+            for line in valinfo_file:
+                step, loss, error = eval(line)
+                validation_values[0].append(step)
+                validation_values[1].append(loss)
+                validation_values[2].append(error)
+        validation_values = (np.array(v) for v in validation_values)
+    else:
+        validation_values = None
+    return plot_learning_curves(training_values, validation_values=validation_values, figure_name=figure_name, show=show, average_over=average_over)
+
+def plot_learning_curves(training_values, validation_values=None, figure_name=None, show=True, average_over=1):
     train_steps, train_losses, train_errors = training_values
     if validation_values is not None:
         validation_steps, validation_losses, validation_errors = validation_values
-    plt.plot(train_steps, train_losses)
+    plt.plot(smooth(train_steps, average_over), smooth(train_losses, average_over))
     if validation_values is not None:
-        plt.plot(validation_steps, validation_losses)
+        plt.plot(smooth(validation_steps, average_over), smooth(validation_losses, average_over))
     if figure_name is not None:
         plt.savefig(figure_name+'_loss.png')
     plt.show()
-    plt.plot(train_steps, train_errors)
+    plt.plot(smooth(train_steps, average_over), smooth(train_errors, average_over))
     if validation_values is not None:
-        plt.plot(validation_steps, validation_errors)
+        plt.plot(smooth(validation_steps, average_over), smooth(validation_errors, average_over))
     if figure_name is not None:
         plt.savefig(figure_name+'_error.png')
     if show:
         plt.show()
+        
+def smooth(array, average_over):
+#     pdb.set_trace()
+    remainder = array.shape[0] % average_over
+    remainder_exists = int(remainder > 0)
+    size = (array.shape[0] // average_over) + remainder_exists
+    if array[0] is None:
+        return array[:size]
+    new_array = np.zeros(size)
+    new_array[:new_array.shape[0]-remainder_exists] = array[:array.shape[0]-remainder].reshape(-1, average_over).mean(-1)
+    if remainder_exists:
+        new_array[new_array.shape[0]-remainder_exists:] = array[array.shape[0]-remainder:].reshape(-1, remainder).mean(-1)
+    return new_array
 
 def log_sum_exp(inputs, dim, weights=None):
     if weights is None:

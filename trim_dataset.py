@@ -28,4 +28,4 @@ def trim(old_filename, new_filename, transformation, constraint):
     print('# of old lines: %i, # of new lines: %i' % (oldcount, newcount))
 
 if __name__ == '__main__':
-    trim('data/dev.data', 'data/dev_trimmed.data', preprocess_text_transformation, line_length_constraint)
+    trim('data/train.data', 'data/train_trimmed.data', preprocess_text_transformation, line_length_constraint)

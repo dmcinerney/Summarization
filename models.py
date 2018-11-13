@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from utils import get_text_matrix
 from beam_search import beam_search
 from submodules import TextEncoder, StateEncoder, ContextVectorNN, VocabularyDistributionNN, ProbabilityNN
 from model_helpers import GeneratedSummary, GeneratedSummaryHypothesis, PointerInfo
