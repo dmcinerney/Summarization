@@ -3,8 +3,6 @@ from torch import nn
 from torch.nn import functional as F
 from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order
 
-import pdb
-
 # Description: this file contains the sub neural networks that are used in the summarization models
 # Outline:
 # a) TextEncoder
@@ -14,21 +12,15 @@ import pdb
 
 # Encodes text through an LSTM
 class TextEncoder(nn.Module):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, num_features, num_hidden):
         super(TextEncoder, self).__init__()
-        self.lstm = nn.LSTM(*args, **kwargs, batch_first=True)
+        self.lstm = nn.LSTM(num_features, num_hidden, bidirectional=True, batch_first=True)
         
     def forward(self, x, length):
         x, invert_indices = pack_padded_sequence_maintain_order(x, length, batch_first=True)
         output, (h, c) = self.lstm(x)
         output, (h, c) = pad_packed_sequence_maintain_order(output, [torch.transpose(h, 0, 1), torch.transpose(c, 0, 1)], invert_indices, batch_first=True)
-        if output.sum() != output.sum():
-            raise Exception
         return output, (h, c)
-    
-    @property
-    def num_hidden(self):
-        return self.lstm.hidden_size
 
 # This class will be used to encode the h and c output of the text
 # in order to be input into the decoder
@@ -52,15 +44,14 @@ class StateEncoder(nn.Module):
 #     context_vector (a weighted sum of the encoder hidden states according to the attention)
 #     attention (a softmax of a vector the length of the number of hidden states)
 class ContextVectorNN(nn.Module):
-    def __init__(self, num_features, num_hidden):
+    def __init__(self, num_inputs, num_hidden):
         super(ContextVectorNN, self).__init__()
-        num_inputs = num_features+1
         self.linear1 = nn.Linear(num_inputs, num_hidden)
         self.linear2 = nn.Linear(num_hidden, 1)
         
     def forward(self, text_states, text_length, summary_current_state, coverage):
         summary_current_states = summary_current_state.unsqueeze(1).expand(*text_states.shape[:2],summary_current_state.size(1))
-        coverages = torch.transpose(coverage,1,2)
+        coverages = coverage.unsqueeze(2)
         inputs = torch.cat((text_states, summary_current_states, coverages), 2)
         scores = self.linear2(torch.tanh(self.linear1(inputs))).squeeze(2)
         
@@ -70,7 +61,7 @@ class ContextVectorNN(nn.Module):
         attention = attention/attention.sum(1, keepdim=True)
         
         context_vector = (attention.unsqueeze(2)*text_states).sum(1)
-        return context_vector, attention.unsqueeze(1)
+        return context_vector, attention
 
 # linear, softmax
 # NOTE: paper says two linear lays to reduce parameters!

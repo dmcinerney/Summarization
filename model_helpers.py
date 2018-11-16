@@ -1,7 +1,6 @@
 import torch
 from pytorch_helper import pad_and_concat, batch_stitch
 from beam_search import Hypothesis
-import pdb
 
 # Description: This file contains helper classes and functions for the summarization models
 # Outline:
@@ -10,6 +9,9 @@ import pdb
 # c) PointerInfo (used in pointer-generator model to keep track of extra info used by this model) (kind of hacky)
 # d) loss_function (this is trivial but is used by ModelManipulator in pytorch_helper.py)
 # e) error_function (this is also trivial but is used by ModelManipulator in pytorch_helper.py)
+
+# TODO: the batch_stitch function in GeneratedSummary and GeneratedSummaryHypothesis
+#       may be able to be refactored into one object
 
 class GeneratedSummary:
     @classmethod
@@ -104,14 +106,13 @@ class GeneratedSummary:
         return self.summary.size(1)
     
     def copy(self):
-        gs_copy = GeneratedSummary(
+        return GeneratedSummary(
             end_index=self.end_index,
             summary=torch.tensor(self.summary),
             summary_length=torch.tensor(self.summary_length),
             loss_unnormalized=torch.tensor(self.loss_unnormalized),
             extras=[torch.tensor(extra) for extra in self.extras]
         )
-        return gs_copy
     
 class GeneratedSummaryHypothesis(Hypothesis):
     @classmethod
@@ -183,7 +184,7 @@ class GeneratedSummaryHypothesis(Hypothesis):
                 loss_t[generated_summary_temp.summary_length > 0] = float('inf')
             
             # get any extra things the model wants to store in your summary object
-            extras = (log_prob.unsqueeze(-1), attention, *self.model.get_extras())
+            extras = (log_prob.unsqueeze(1), attention.unsqueeze(1), *self.model.get_extras())
             
             # update summary
             generated_summary_temp.update(summary_tp1, loss_t, extras)
@@ -221,7 +222,7 @@ class PointerInfo:
         return self.oov_lengths[self.valid_indices] if self.valid_indices is not None else self.oov_lengths
     
 def loss_function(loss):
-    return loss.sum()
+    return loss.mean()
 
 def error_function(loss):
     return None

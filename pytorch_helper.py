@@ -26,26 +26,19 @@ class ModelManipulator:
     #         on the parameters before backward is called
     #     -use_cuda is a boolean indicating whether or not
     #         to use the cuda gpu
-    def __init__(self, model, optimizer, loss_function, error_function, grad_mod=None, use_cuda=False):
+    def __init__(self, model, optimizer, loss_function, error_function, grad_mod=None):
         self.model = model
         self.optimizer = optimizer
         self.loss_function = loss_function
         self.error_function = error_function
         self.grad_mod = grad_mod
-        self.use_cuda = use_cuda
-        if self.use_cuda:
-            if not torch.cuda.is_available():
-                raise Exception
-            self.model.cuda()
+        self.device = list(model.parameters())[0].device
     
-    def inputs_to_cuda(self, inputs):
-        if self.use_cuda:
-            return {k:(v.cuda() if isinstance(v, torch.Tensor) else v) for k,v in inputs.items()}
-        else:
-            return inputs
+    def inputs_to_device(self, inputs):
+        return {k:(v.to(self.device) if isinstance(v, torch.Tensor) else v) for k,v in inputs.items()}
         
     def step(self, inputs, training=False):
-        inputs = self.inputs_to_cuda(inputs)
+        inputs = self.inputs_to_device(inputs)
         with torch.set_grad_enabled(training):
             outputs = self.model(**inputs)
             loss = self.loss_function(**outputs)
@@ -64,17 +57,21 @@ class ModelManipulator:
             error_value = None
         return loss_value, error_value
 
-    def train(self, dataset_train, batch_size, epochs, dataset_val=None, stats_every=1000, verbose_every=100, checkpoint_every=1000, checkpoint_path=None, restart=True):
-        tt = TrainingTracker(self, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart)
+    def train(self, dataset_train, batch_size, epochs, dataset_val=None, stats_every=1000, verbose_every=100, checkpoint_every=1000, checkpoint_path=None, restart=True, max_steps=None):
+        tt = TrainingTracker(self, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, max_steps)
         i, indices_iterator = tt.initialize()
-        while i < epochs:
-            indices_iterator = IndicesIterator(len(dataset_train), batch_size=batch_size, shuffle=True) if indices_iterator is None else indices_iterator
-            for j,indices in indices_iterator:
-                inputs = dataset_train[indices]
-                train_loss, train_error = self.step(inputs, training=True)
-                tt.step(i, j, train_loss, train_error, indices.size(0), indices_iterator)
-            indices_iterator = None
-            i += 1
+        try:
+            while i < epochs:
+                indices_iterator = IndicesIterator(len(dataset_train), batch_size=batch_size, shuffle=True) if indices_iterator is None else indices_iterator
+                for j,indices in indices_iterator:
+                    inputs = dataset_train[indices]
+                    train_loss, train_error = self.step(inputs, training=True)
+                    tt.step(i, j, train_loss, train_error, indices.size(0), indices_iterator)
+                indices_iterator = None
+                i += 1
+        except StopEarlyException:
+            pass
+
         return tt.end(i, j, indices_iterator)
 
     # batch_dim is a tuple that tells you an input key, and the batch dimension for that input
@@ -95,7 +92,7 @@ class ModelManipulator:
         return loss_running_average.average, error_running_average.average
 
 class TrainingTracker:
-    def __init__(self, model_manip, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart):
+    def __init__(self, model_manip, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, max_steps):
         self.train_steps = []
         self.train_losses = []
         self.train_errors = []
@@ -110,6 +107,8 @@ class TrainingTracker:
         self.checkpoint_every = checkpoint_every
         self.checkpoint_path = checkpoint_path
         self.restart = restart
+        self.max_steps = max_steps
+
         self.step_num = 0
         self.last_step_num = -1
 
@@ -118,23 +117,15 @@ class TrainingTracker:
             os.mkdir(self.checkpoint_path)
 
     def initialize(self):
+        i, indices_iterator = 0, None
         if self.checkpoint_path is not None and not self.restart:
             # get epoch
-            if os.path.exists(os.path.join(self.checkpoint_path, "iternum.txt")):
-                with open(os.path.join(self.checkpoint_path, "iternum.txt"), "r") as iternumfile:
-                    i, self.step_num = eval(iternumfile.read())
-                    self.step_num += 1
-            else:
-                return 0, None
+            with open(os.path.join(self.checkpoint_path, "iternum.txt"), "r") as iternumfile:
+                i, self.step_num = eval(iternumfile.read())
             # get indices iterator
-            if os.path.exists(os.path.join(self.checkpoint_path, "indices_iterator.pkl")):
-                with open(os.path.join(self.checkpoint_path, "indices_iterator.pkl"), "rb") as iteratorfile:
-                    indices_iterator = pkl.load(iteratorfile)
-            else:
-                return 0, None
-            return i, indices_iterator
-        else:
-            return 0, None
+            with open(os.path.join(self.checkpoint_path, "indices_iterator.pkl"), "rb") as iteratorfile:
+                indices_iterator = pkl.load(iteratorfile)
+        return i, indices_iterator
             
     def step(self, i, j, train_loss, train_error, batch_size, indices_iterator):
         self.train_losses.append(train_loss)
@@ -158,6 +149,8 @@ class TrainingTracker:
         if self.checkpoint_path is not None and self.step_num % self.checkpoint_every == 0:
             self.save_checkpoint(i, indices_iterator)
         self.step_num += 1
+        if self.max_steps is not None and self.step_num >= self.max_steps:
+            raise StopEarlyException
         
     def save_checkpoint(self, i, indices_iterator):
         for s in np.arange(len(self.train_steps))[np.array(self.train_steps) > self.last_step_num]:
@@ -194,6 +187,9 @@ class TrainingTracker:
             return np.array(self.train_steps),\
                    np.array(self.train_losses),\
                    np.array(self.train_errors)
+
+class StopEarlyException(Exception):
+    pass
 
 class RunningAverage:
     def __init__(self):
@@ -364,6 +360,7 @@ def plot_checkpoint(checkpoint_path, figure_name=None, show=True, average_over=1
         validation_values = (np.array(v) for v in validation_values)
     else:
         validation_values = None
+    figure_name = os.path.join(checkpoint_path, figure_name) if figure_name is not None else None
     return plot_learning_curves(training_values, validation_values=validation_values, figure_name=figure_name, show=show, average_over=average_over)
 
 def plot_learning_curves(training_values, validation_values=None, figure_name=None, show=True, average_over=1):
@@ -375,7 +372,9 @@ def plot_learning_curves(training_values, validation_values=None, figure_name=No
         plt.plot(smooth(validation_steps, average_over), smooth(validation_losses, average_over))
     if figure_name is not None:
         plt.savefig(figure_name+'_loss.png')
-    plt.show()
+    if show:
+        plt.show()
+    plt.close()
     plt.plot(smooth(train_steps, average_over), smooth(train_errors, average_over))
     if validation_values is not None:
         plt.plot(smooth(validation_steps, average_over), smooth(validation_errors, average_over))
@@ -385,7 +384,8 @@ def plot_learning_curves(training_values, validation_values=None, figure_name=No
         plt.show()
         
 def smooth(array, average_over):
-#     pdb.set_trace()
+    if array.shape[0] == 0:
+        return array
     remainder = array.shape[0] % average_over
     remainder_exists = int(remainder > 0)
     size = (array.shape[0] // average_over) + remainder_exists
