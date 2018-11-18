@@ -2,6 +2,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order
+import parameters as p
+from model_helpers import init_lstm_weights
 
 # Description: this file contains the sub neural networks that are used in the summarization models
 # Outline:
@@ -15,6 +17,7 @@ class TextEncoder(nn.Module):
     def __init__(self, num_features, num_hidden):
         super(TextEncoder, self).__init__()
         self.lstm = nn.LSTM(num_features, num_hidden, bidirectional=True, batch_first=True)
+        init_lstm_weights(self.lstm)
         
     def forward(self, x, length):
         x, invert_indices = pack_padded_sequence_maintain_order(x, length, batch_first=True)
@@ -29,6 +32,8 @@ class StateEncoder(nn.Module):
         super(StateEncoder, self).__init__()
         self.linearh = nn.Linear(num_hidden*2, num_hidden)
         self.linearc = nn.Linear(num_hidden*2, num_hidden)
+        for param in self.parameters():
+            param.data.normal_(std=p.WEIGHT_INIT_STD)
         
     def forward(self, h, c):
         h1, h2 = h[:, 0], h[:, 1]
