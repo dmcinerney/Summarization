@@ -33,10 +33,10 @@ class ModelManipulator:
         self.error_function = error_function
         self.grad_mod = grad_mod
         self.device = list(model.parameters())[0].device
-    
+
     def inputs_to_device(self, inputs):
         return {k:(v.to(self.device) if isinstance(v, torch.Tensor) else v) for k,v in inputs.items()}
-        
+
     def step(self, inputs, training=False):
         inputs = self.inputs_to_device(inputs)
         with torch.set_grad_enabled(training):
@@ -72,7 +72,7 @@ class ModelManipulator:
         except StopEarlyException:
             pass
 
-        return tt.end(i, j, indices_iterator)
+        return tt.end(i, j+1, indices_iterator)
 
     # batch_dim is a tuple that tells you an input key, and the batch dimension for that input
     # error function must never return None for this function to work
@@ -120,13 +120,13 @@ class TrainingTracker:
         i, indices_iterator = 0, None
         if self.checkpoint_path is not None and not self.restart:
             # get epoch
-            with open(os.path.join(self.checkpoint_path, "iternum.txt"), "r") as iternumfile:
+            with open(os.path.join(self.checkpoint_path, 'iternum.txt'), 'r') as iternumfile:
                 i, self.step_num = eval(iternumfile.read())
             # get indices iterator
-            with open(os.path.join(self.checkpoint_path, "indices_iterator.pkl"), "rb") as iteratorfile:
+            with open(os.path.join(self.checkpoint_path, 'indices_iterator.pkl'), 'rb') as iteratorfile:
                 indices_iterator = pkl.load(iteratorfile)
         return i, indices_iterator
-            
+
     def step(self, i, j, train_loss, train_error, batch_size, indices_iterator):
         self.train_losses.append(train_loss)
         self.train_errors.append(train_error)
@@ -140,32 +140,35 @@ class TrainingTracker:
         if self.step_num % self.verbose_every == 0:
             # needed because error can sometimes be None
             printed_train_error = str(train_error)
-            print("epoch: %i, batch: %i, train_loss: %f, train_error: %s" % (i, j, train_loss, printed_train_error))
+            print('epoch: %i, batch: %i, train_loss: %f, train_error: %s' % (i, j, train_loss, printed_train_error))
         # check for nans in model
         param_sum = sum(p.sum() for p in self.model_manip.model.parameters())
         if param_sum != param_sum:
-            raise Exception
+            raise Exception('NaNs detected in model parameters after optimizer step!')
         # save checkpoint
         if self.checkpoint_path is not None and self.step_num % self.checkpoint_every == 0:
             self.save_checkpoint(i, indices_iterator)
         self.step_num += 1
         if self.max_steps is not None and self.step_num >= self.max_steps:
             raise StopEarlyException
-        
+
     def save_checkpoint(self, i, indices_iterator):
         for s in np.arange(len(self.train_steps))[np.array(self.train_steps) > self.last_step_num]:
-            with open(os.path.join(self.checkpoint_path, "train_info.txt"), "a") as train_info:
-                train_info.write(str([self.train_steps[s], self.train_losses[s], self.train_errors[s]])+"\n")
+            with open(os.path.join(self.checkpoint_path, 'train_info.txt'), 'a') as train_info:
+                train_info.write(str([self.train_steps[s], self.train_losses[s], self.train_errors[s]])+'\n')
         for s in np.arange(len(self.validation_steps))[np.array(self.validation_steps) > self.last_step_num]:
-            with open(os.path.join(self.checkpoint_path, "val_info.txt"), "a") as val_info:
-                val_info.write(str([self.validation_steps[s], self.validation_losses[s], self.validation_errors[s]])+"\n")
+            with open(os.path.join(self.checkpoint_path, 'val_info.txt'), 'a') as val_info:
+                val_info.write(str([self.validation_steps[s], self.validation_losses[s], self.validation_errors[s]])+'\n')
         # save model
-        torch.save(self.model_manip.model, os.path.join(self.checkpoint_path, "model.model"))
+        torch.save(self.model_manip.model, os.path.join(self.checkpoint_path, 'model.model'))
+        # save optimizer state
+        with open(os.path.join(self.checkpoint_path, 'optimizer_state.pkl'), 'wb') as optimizerfile:
+            pkl.dump(self.model_manip.optimizer.state_dict(), optimizerfile)
         # save epoch
-        with open(os.path.join(self.checkpoint_path, "iternum.txt"), "w") as iternumfile:
+        with open(os.path.join(self.checkpoint_path, 'iternum.txt'), 'w') as iternumfile:
             iternumfile.write(str([i,self.step_num]))
         # save indices iterator
-        with open(os.path.join(self.checkpoint_path, "indices_iterator.pkl"), "wb") as iteratorfile:
+        with open(os.path.join(self.checkpoint_path, 'indices_iterator.pkl'), 'wb') as iteratorfile:
             pkl.dump(indices_iterator, iteratorfile)
         self.last_step_num = self.step_num
 
@@ -174,7 +177,7 @@ class TrainingTracker:
             self.save_checkpoint(i, indices_iterator)
 
         if self.verbose_every is not None:
-            print("%i epochs with %i batches per epoch done" % (i, j))
+            print('%i epochs with %i batches per epoch done' % (i, j))
 
         if self.dataset_val is not None:
             return (np.array(self.train_steps),\
@@ -342,16 +345,16 @@ def dicts_into_batch(list_of_dicts):
 
 def plot_checkpoint(checkpoint_path, figure_name=None, show=True, average_over=1):
     training_values = ([], [], [])
-    with open(os.path.join(checkpoint_path, "train_info.txt"), "r") as traininfo_file:
+    with open(os.path.join(checkpoint_path, 'train_info.txt'), 'r') as traininfo_file:
         for line in traininfo_file:
             step, loss, error = eval(line)
             training_values[0].append(step)
             training_values[1].append(loss)
             training_values[2].append(error)
     training_values = (np.array(v) for v in training_values)
-    if os.path.exists(os.path.join(checkpoint_path, "val_info.txt")):
+    if os.path.exists(os.path.join(checkpoint_path, 'val_info.txt')):
         validation_values = ([], [], [])
-        with open(os.path.join(checkpoint_path, "val_info.txt"), "r") as valinfo_file:
+        with open(os.path.join(checkpoint_path, 'val_info.txt'), 'r') as valinfo_file:
             for line in valinfo_file:
                 step, loss, error = eval(line)
                 validation_values[0].append(step)

@@ -9,6 +9,7 @@ import torch
 from utils import summarize, print_batch, visualize, produce_summary_files
 import pdb
 import parameters as p
+import pickle as pkl
 from model_helpers import clip_grad_norm
 
 if __name__ == '__main__':
@@ -16,9 +17,9 @@ if __name__ == '__main__':
         train_word2vec_model(p.DATA_FILE, p.WORD2VEC_FILE, p.EMBEDDING_DIM)
     print("retreiving word2vec model from file")
     vectorizer = Vectorizer(Word2Vec.load(p.WORD2VEC_FILE))
-    data = get_data(p.DATA_FILE, vectorizer, with_oov=p.POINTER_GEN)
 
     if p.MODE == 'train':
+        data = get_data(p.DATA_FILE, vectorizer, with_oov=p.POINTER_GEN)
         val = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN)
 
         if p.CONTINUE_FROM_CHECKPOINT:
@@ -28,7 +29,8 @@ if __name__ == '__main__':
                not os.path.exists(os.path.join(p.CHECKPOINT_PATH, 'indices_iterator.pkl')) or \
                not os.path.exists(os.path.join(p.CHECKPOINT_PATH, 'iternum.txt')) or \
                not os.path.exists(os.path.join(p.CHECKPOINT_PATH, 'train_info.txt')) or \
-               not os.path.exists(os.path.join(p.CHECKPOINT_PATH, 'val_info.txt')):
+               not os.path.exists(os.path.join(p.CHECKPOINT_PATH, 'val_info.txt')) or \
+               not os.path.exists(os.path.join(p.CHECKPOINT_PATH, 'optimizer_state.pkl')):
                 print("Cannot continue from checkpoint because not all of the proper files exist; restarting.")
                 p.CONTINUE_FROM_CHECKPOINT = False
             else:
@@ -53,12 +55,15 @@ if __name__ == '__main__':
 
         model = model if not p.USE_CUDA else model.cuda()
 
-#         optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+#         optimizer = torch.optim.Adam(model.parameters(), lr=p.LEARNING_RATE)
         optimizer = torch.optim.Adagrad(
             model.parameters(),
             lr=p.LEARNING_RATE,
             initial_accumulator_value=p.INITIAL_ACCUMULATOR_VALUE,
         )
+        if p.CONTINUE_FROM_CHECKPOINT:
+            with open(os.path.join(p.CHECKPOINT_PATH, 'optimizer_state.pkl'), 'rb') as optimizerfile:
+                optimizer.load_state_dict(pkl.load(optimizerfile))
 
         model_manip = ModelManipulator(
             model,
@@ -79,7 +84,7 @@ if __name__ == '__main__':
             restart=not p.CONTINUE_FROM_CHECKPOINT,
             max_steps=p.MAX_TRAINING_STEPS,
         )
-        if p.CONTINUE_FROM_CHECKPOINT:
+        if p.CHECKPOINT_PATH is not None:
             plot_checkpoint(
                 p.CHECKPOINT_PATH,
                 figure_name='plot',
@@ -94,8 +99,10 @@ if __name__ == '__main__':
                 show=False,
                 average_over=p.AVERAGE_OVER
             )
+        p.save_params(os.path.join(p.CHECKPOINT_PATH, 'param_info.txt'))
 
     elif p.MODE == 'eval':
+        data = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN)
         model = torch.load(p.MODEL_FILE)
         produce_summary_files(
             data,
@@ -110,6 +117,7 @@ if __name__ == '__main__':
         # run_rouge()
 
     elif p.MODE == 'visualize':
+        data = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN)
         model = torch.load(p.MODEL_FILE)
         batch = data[:p.DECODING_BATCH_SIZE]
         results = summarize(batch, model, beam_size=p.BEAM_SIZE)

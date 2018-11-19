@@ -3,7 +3,8 @@ from torch import nn
 from torch.nn import functional as F
 from beam_search import beam_search
 from submodules import TextEncoder, StateEncoder, ContextVectorNN, VocabularyDistributionNN, ProbabilityNN
-from model_helpers import GeneratedSummary, GeneratedSummaryHypothesis, PointerInfo, init_lstm_weights
+from model_helpers import GeneratedSummary, GeneratedSummaryHypothesis, PointerInfo, init_lstm_weights, trim_text
+import parameters as p
 import pdb
 
 # Outline:
@@ -23,6 +24,9 @@ class Summarizer(nn.Module):
         self.decoder = decoder_class(vectorizer, start_index, end_index, lstm_hidden, attn_hidden=attn_hidden, with_coverage=with_coverage, gamma=gamma)
 
     def forward(self, text, text_length, text_oov_indices=None, summary=None, summary_length=None, beam_size=1):
+#         text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
+#         if summary is not None:
+#             summary, summary_length = trim_text(summary, summary_length, p.MAX_SUMMARY_LENGTH)
         text_states, (h, c) = self.encoder(text, text_length)
         if self.with_pointer:
             self.decoder.set_pointer_info(PointerInfo(text, text_oov_indices))

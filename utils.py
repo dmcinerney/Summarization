@@ -27,10 +27,11 @@ def produce_attention_visualization_file(filename, text, reference_summary, deco
         json.dump(data, outfile)
         
 def summarize(batch, model, beam_size=1):
+    device = list(model.parameters())[0].device
     if model.with_pointer:
-        results = model(batch['text'].cuda(), batch['text_length'].cuda(), batch['text_oov_indices'], beam_size=beam_size)
+        results = model(batch['text'].to(device), batch['text_length'].to(device), batch['text_oov_indices'], beam_size=beam_size)
     else:
-        results = model(batch['text'].cuda(), batch['text_length'].cuda(), beam_size=beam_size)
+        results = model(batch['text'].to(device), batch['text_length'].to(device), beam_size=beam_size)
     return results
     
 def get_text_triplets(batch, summary_info, vectorizer, pointer_gen=False):
@@ -73,7 +74,7 @@ def produce_summary_files(dataset, batch_size, vectorizer, model, path, beam_siz
         print(i)
         if max_num_batch is not None and (i+1) >= max_num_batch:
             break
-            
+
 def run_rouge():
 #     call(["-Drouge.prop=rouge/ROUGE-2/rouge.properties"])
 #     call(["java", "-jar", "rouge/ROUGE-2/rouge2-1.2.jar"])

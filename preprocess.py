@@ -2,6 +2,7 @@ import struct
 from newsroom import jsonl
 import os
 from utils import preprocess_text
+import parameters as p
 
 def trim_and_transform(example_generator, new_filename, transformation, constraint):
     oldcount, newcount = 0, 0
@@ -58,7 +59,7 @@ def cnn_preprocess(example_str):
     return dict(text=article, summary=abstract)
 
 def cnn_constraint(line):
-    return len(line['text']) <= 500 and len(line['text']) > 0 and len(line['summary']) > 0
+    return len(line['text']) > 0 and len(line['summary']) > 0 and len(line['text']) <= 500
 
 if __name__ == '__main__':
     # for newsroom dataset
@@ -78,6 +79,5 @@ if __name__ == '__main__':
                 str_len = struct.unpack('q', len_bytes)[0]
                 example_str = struct.unpack('%ds' % str_len, trainfile.read(str_len))[0]
                 yield example_str
-                
-    trim_and_transform(cnn_dataset_generator(filename), new_filename, cnn_preprocess, cnn_constraint)
 
+    trim_and_transform(cnn_dataset_generator(filename), new_filename, cnn_preprocess, cnn_constraint)

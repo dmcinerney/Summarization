@@ -30,6 +30,9 @@ def init_lstm_weights(module):
             param.data.fill_(0.)
             param.data[start:end].fill_(1.)
 
+def trim_text(text, length, max_length):
+    return text[:, :max_length], torch.clamp(length, 0, max_length)
+
 class GeneratedSummary:
     @classmethod
     def batch_stitch(cls, generated_summaries, indices):
@@ -108,7 +111,7 @@ class GeneratedSummary:
         return self.loss_unnormalized/(self.length().float()-1)
 
     def is_done(self):
-        return (self.summary_length >= 0).sum() == self.summary_length.size(0) or len(self) > 200
+        return (self.summary_length >= 0).sum() == self.summary_length.size(0) or len(self) >= p.MAX_SUMMARY_LENGTH
 
     def return_info(self):
         extras = (extra.cpu().detach().numpy() for extra in self.extras)
@@ -197,6 +200,8 @@ class GeneratedSummaryHypothesis(Hypothesis):
             loss_t = -log_prob + self.model.gamma*(covloss if self.model.with_coverage else 0)
 
             # trick so that duplicate batch examples aren't chosen in the top k
+            # NOTE: there are duplicates for examples in an unfinished batch that
+            #       have already finished and are not being altered
             if i > 0:
                 loss_t[generated_summary_temp.summary_length > 0] = float('inf')
 

@@ -32,8 +32,8 @@ class StateEncoder(nn.Module):
         super(StateEncoder, self).__init__()
         self.linearh = nn.Linear(num_hidden*2, num_hidden)
         self.linearc = nn.Linear(num_hidden*2, num_hidden)
-        for param in self.parameters():
-            param.data.normal_(std=p.WEIGHT_INIT_STD)
+#         for param in self.parameters():
+#             param.data.normal_(std=p.WEIGHT_INIT_STD)
         
     def forward(self, h, c):
         h1, h2 = h[:, 0], h[:, 1]
