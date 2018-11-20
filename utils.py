@@ -33,19 +33,19 @@ def summarize(batch, model, beam_size=1):
     else:
         results = model(batch['text'].to(device), batch['text_length'].to(device), beam_size=beam_size)
     return results
-    
-def get_text_triplets(batch, summary_info, vectorizer, pointer_gen=False):
+
+def get_text_triplets(batch, summary_info, vectorizer):
     text_triplets = []
     for i in range(len(summary_info[0])):
         summary_indices, summary_length = summary_info[0][i], summary_info[1][i]
         r_summary_indices, r_summary_length = batch['summary'][i].numpy(), batch['summary_length'][i].numpy()
         text_indices, text_length = batch['text'][i].numpy(), batch['text_length'][i].numpy()
-        oov_words = {v:k for k,v in batch['text_oov_indices'][i].items()} if pointer_gen is True else None
+        oov_words = {v:k for k,v in batch['text_oov_indices'][i].items()} if 'text_oov_indices' in batch.keys() else None
 
         text = vectorizer.get_index_words(text_indices[:text_length], oov_words=oov_words)
         reference_summary = vectorizer.get_index_words(r_summary_indices[:r_summary_length], oov_words=oov_words)
         decoded_summary = vectorizer.get_index_words(summary_indices[:summary_length], oov_words=oov_words)
-        
+
         text_triplets.append((text,reference_summary,decoded_summary))
     return text_triplets
 
@@ -54,7 +54,7 @@ def rouge_preprocess(text_tokens):
 
 def produce_batch_summary_files(batch, vectorizer, model, path, beam_size=1, start_index=0):
     results = summarize(batch, model, beam_size=beam_size)
-    text_triplets = get_text_triplets(batch, results[0], vectorizer, pointer_gen=model.with_pointer)
+    text_triplets = get_text_triplets(batch, results[0], vectorizer)
     i = start_index
     for text,reference,decoded in text_triplets:
         with open(os.path.join(path,"articles/article"+str(i)+"_text.txt"), "w") as textfile:
@@ -86,7 +86,7 @@ def run_rouge():
     return df
 
 def print_batch(batch, summary_info, vectorizer):
-    triplets = get_text_triplets(batch, summary_info, vectorizer, pointer_gen=True)
+    triplets = get_text_triplets(batch, summary_info, vectorizer)
     for i,(text, reference_summary, decoded_summary) in enumerate(triplets):
         loss = summary_info[2][i]
         print("text", text)
@@ -94,8 +94,9 @@ def print_batch(batch, summary_info, vectorizer):
         print("decoded summary", decoded_summary)
         print(loss)
         
-def visualize(filename, batch, summary_info, vectorizer, i):
+def visualize(filename, batch, summary_info, vectorizer, i, pointer_gen=False):
     triplets = get_text_triplets(batch, summary_info, vectorizer)
     text, reference_summary, decoded_summary = triplets[i]
-    attentions, p_gens = [[float(f) for f in vector[1:-1]] for vector in summary_info[4][i][:-1]], [float(f) for f in summary_info[5][i][:-1]]
+    attentions = [[float(f) for f in vector[1:-1]] for vector in summary_info[4][i][:-1]]
+    p_gens = [float(f) for f in summary_info[5][i][:-1]] if pointer_gen else [1. for i in range(len(attentions))]
     produce_attention_visualization_file(filename, text[1:-1], " ".join(reference_summary[1:-1]), decoded_summary[1:-1], attentions, p_gens)

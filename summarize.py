@@ -122,5 +122,4 @@ if __name__ == '__main__':
         batch = data[:p.DECODING_BATCH_SIZE]
         results = summarize(batch, model, beam_size=p.BEAM_SIZE)
         print_batch(batch, results[0], vectorizer)
-        visualize(p.VISUALIZATION_FILE, batch, results[0], vectorizer, 0)
-
+        visualize(p.VISUALIZATION_FILE, batch, results[0], vectorizer, 0, pointer_gen=p.POINTER_GEN)
