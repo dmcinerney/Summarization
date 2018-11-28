@@ -3,11 +3,11 @@ import torch
 WORD2VEC_FILE = 'data/cnn_dataset/word2vec.model'
 DATA_FILE = 'data/cnn_dataset/train_processed.data'
 VAL_FILE = 'data/cnn_dataset/val_processed.data'
-MODE = 'visualize'
+MODE = 'train'
 CONTINUE_FROM_CHECKPOINT = True
 CHECKPOINT_PATH = 'checkpoint'
-MODEL_FILE = 'checkpoint4/model.model'
-POINTER_GEN = False
+MODEL_FILE = 'checkpoint/model.model'
+POINTER_GEN = True
 VISUALIZATION_FILE = 'graphs/attn_vis_data.json'
 TRAINING_PLOTS_PATH = 'graphs'
 MAX_TRAINING_STEPS = None
@@ -16,7 +16,7 @@ MAX_TRAINING_STEPS = None
 EMBEDDING_DIM = 64
 LSTM_HIDDEN = 64
 ATTN_HIDDEN = 64
-WITH_COVERAGE = False
+WITH_COVERAGE = True
 GAMMA = 1 # only matters if with_coverage = True
 LEARNING_RATE = .015
 INITIAL_ACCUMULATOR_VALUE = 0.1

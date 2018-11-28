@@ -24,9 +24,9 @@ class Summarizer(nn.Module):
         self.decoder = decoder_class(vectorizer, start_index, end_index, lstm_hidden, attn_hidden=attn_hidden, with_coverage=with_coverage, gamma=gamma)
 
     def forward(self, text, text_length, text_oov_indices=None, summary=None, summary_length=None, beam_size=1):
-#         text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
-#         if summary is not None:
-#             summary, summary_length = trim_text(summary, summary_length, p.MAX_SUMMARY_LENGTH)
+        text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
+        if summary is not None:
+            summary, summary_length = trim_text(summary, summary_length, p.MAX_SUMMARY_LENGTH)
         text_states, (h, c) = self.encoder(text, text_length)
         if self.with_pointer:
             self.decoder.set_pointer_info(PointerInfo(text, text_oov_indices))
@@ -253,7 +253,14 @@ class PointerGenDecoder(Decoder):
 
     # this changes it so that only words that don't appear in the text and the static vocab are mapped to the oov index
     def map_oov_indices(self, indices):
-        indices[(indices.int() < -self.pointer_info.get_oov_lengths()).squeeze(0)] = len(self.vectorizer.word_vectors)
+        # set oov not in text to oov index
+        indices[indices < -self.pointer_info.max_num_oov] = len(self.vectorizer.word_vectors)
+        oov_places = torch.nonzero(indices < 0)
+        if oov_places.dim() > 1:
+            batch_indices, oov_indices = oov_places[:,0], -1-indices[oov_places[:,0]]
+            holes = self.pointer_info.get_oov_holes()
+            indices[batch_indices[holes[batch_indices, oov_indices.long()].byte()]] = len(self.vectorizer.word_vectors)
+
 
     def get_extras(self):
         return (self.pointer_info.current_p_gen,)

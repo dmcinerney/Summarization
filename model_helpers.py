@@ -3,6 +3,7 @@ from pytorch_helper import pad_and_concat, batch_stitch
 from beam_search import Hypothesis
 import parameters as p
 from torch.nn.utils import clip_grad_norm_
+import pdb
 
 # Description: This file contains helper classes and functions for the summarization models
 # Outline:
@@ -225,11 +226,20 @@ class PointerInfo:
     def __init__(self, text, text_oov_indices):
         self.text = text
         self.text_oov_indices = text_oov_indices
-        self.oov_lengths = torch.tensor([len(oovs) for oovs in text_oov_indices], device=text.device).int()
-        self.max_num_oov = torch.max(self.oov_lengths)
+        oov_lengths = torch.tensor([len(oovs) for oovs in text_oov_indices], device=text.device).int()
+        self.max_num_oov = torch.max(oov_lengths)
         self.word_indices = torch.unique(text)
         self.valid_indices = None
         self.current_p_gen = None
+
+        # get out of vocabulary holes for mapping later
+        # text_oov_indicator - a batch_size by max_seq_length by max_num_oov matrix where
+        # the (i, j, k) element indicates whether the jth word of the ith example is the kth oov index
+        text_oov_indicator = text.unsqueeze(2) == -1-torch.arange(self.max_num_oov, device=text.device).int().view(1,1,-1)
+        # example_oov_indicator - a batch_size by max_num_oov matrix where
+        # the (i, j) element indicates whether the jth oov index is present in the ith example
+        example_oov_indicator = text_oov_indicator.sum(1) > 0
+        self.oov_holes = example_oov_indicator == 0
 
     def update_valid_indices(self, valid_indices):
         self.valid_indices = valid_indices
@@ -240,8 +250,8 @@ class PointerInfo:
     def get_text(self):
         return self.text[self.valid_indices] if self.valid_indices is not None else text
 
-    def get_oov_lengths(self):
-        return self.oov_lengths[self.valid_indices] if self.valid_indices is not None else self.oov_lengths
+    def get_oov_holes(self):
+        return self.oov_holes[self.valid_indices] if self.valid_indices is not None else self.oov_holes
 
 def loss_function(loss):
     return loss.mean()

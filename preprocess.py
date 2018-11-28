@@ -20,7 +20,7 @@ def trim_and_transform(example_generator, new_filename, transformation, constrai
     print('# of old lines: %i, # of new lines: %i' % (oldcount, newcount))
 
 def newsroom_constraint(line):
-    return line['text'] is not None and line['summary'] is not None and len(line['text']) <= 500
+    return line['text'] is not None and line['summary'] is not None
 
 def newsroom_preprocess(line):
     text = preprocess_text(line['text']) if line['text'] is not None else None
@@ -59,7 +59,7 @@ def cnn_preprocess(example_str):
     return dict(text=article, summary=abstract)
 
 def cnn_constraint(line):
-    return len(line['text']) > 0 and len(line['summary']) > 0 and len(line['text']) <= 500
+    return len(line['text']) > 0 and len(line['summary']) > 0
 
 if __name__ == '__main__':
     # for newsroom dataset

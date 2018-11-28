@@ -3,6 +3,7 @@ import pandas as pd
 from gensim.models import Word2Vec
 
 def train_word2vec_model(data_file, word2vec_file, embedding_dim):
+    print("reading data file")
     data = pd.read_json(data_file, lines=True, compression='gzip')
     document_iterator = SummarizationDataset(data).text_iterator()
     print("training word2vec model")

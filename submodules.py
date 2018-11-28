@@ -18,7 +18,7 @@ class TextEncoder(nn.Module):
         super(TextEncoder, self).__init__()
         self.lstm = nn.LSTM(num_features, num_hidden, bidirectional=True, batch_first=True)
         init_lstm_weights(self.lstm)
-        
+
     def forward(self, x, length):
         x, invert_indices = pack_padded_sequence_maintain_order(x, length, batch_first=True)
         output, (h, c) = self.lstm(x)
