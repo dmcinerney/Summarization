@@ -1,5 +1,6 @@
 import torch
 
+ASPECT_FILE = None
 WORD2VEC_FILE = 'data/cnn_dataset/word2vec.model'
 DATA_FILE = 'data/cnn_dataset/train_processed.data'
 VAL_FILE = 'data/cnn_dataset/val_processed.data'

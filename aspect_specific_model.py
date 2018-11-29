@@ -1,0 +1,51 @@
+from model import Summarizer, Encoder, Decoder, PointerGenDecoder
+import parameters as p
+
+
+class AspectSummarizer(Summarizer):
+    def __init__(self, vectorizer, start_index, end_index, aspects, lstm_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False):
+        super(AspectSummarizer, self).__init__()
+        self.aspects = aspects
+        self.init_submodules()
+        self.curr_aspect = None
+
+    def init_submodules(self):
+        decoder_class = Decoder if not self.with_pointer else PointerGenDecoder
+        for i,aspect in enumerate(self.aspects):
+            self.__setattr__('encoder%i' % i, Encoder(self.vectorizer, self.lstm_hidden))
+            self.__setattr__('decoder%i' % i, decoder_class(self.vectorizer, self.start_index, self.end_index, self.lstm_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma))
+
+    def forward(self, text, text_length, text_oov_indices=None, beam_size=1, **kwargs):
+        if len(kwargs) == 0:
+            for aspect in self.aspects:
+                kwargs[aspect] = None
+                kwargs[aspect+'_length'] = None
+        if len(kwargs) != len(self.aspects):
+            raise Exception
+        text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
+        final_return_dict = {}
+        for i,aspect in enumerate(self.aspects):
+            self.curr_aspect = i
+            text_states, (h, c) = self.encoder(text, text_length)
+            if self.with_pointer:
+                self.decoder.set_pointer_info(PointerInfo(text, text_oov_indices))
+            summary, summary_length = kwargs[aspect], kwargs[aspect+'_length']
+            if summary is not None:
+                summary, summary_length = trim_text(summary, summary_length, p.MAX_SUMMARY_LENGTH)
+            return_dict = self.decoder(text_states, text_length, h, c, summary=summary, summary_length=summary_length, beam_size=beam_size)
+            for k,v in return_dict.items():
+                final_return_dict[k+'_'+aspect] = v
+        self.curr_aspect = None
+        return final_return_dict
+
+    @property
+    def encoder(self):
+        if self.curr_aspect is None:
+            raise Exception
+        return self.__getattr__('encoder%i' % self.curr_aspect)
+
+    @property
+    def decoder(self):
+        if self.curr_aspect is None:
+            raise Exception
+        return self.__getattr__('decoder%i' % self.curr_aspect)

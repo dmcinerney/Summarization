@@ -92,6 +92,24 @@ class ModelManipulator:
         return loss_running_average.average, error_running_average.average
 
 class TrainingTracker:
+    @staticmethod
+    def valid_checkpoint(checkpoint_path):
+        return os.path.exists(os.path.join(checkpoint_path, 'model.model')) and \
+               os.path.exists(os.path.join(checkpoint_path, 'indices_iterator.pkl')) and \
+               os.path.exists(os.path.join(checkpoint_path, 'iternum.txt')) and \
+               os.path.exists(os.path.join(checkpoint_path, 'train_info.txt')) and \
+               os.path.exists(os.path.join(checkpoint_path, 'val_info.txt')) and \
+               os.path.exists(os.path.join(checkpoint_path, 'optimizer_state.pkl'))
+
+    @staticmethod
+    def load_model(checkpoint_path):
+        return torch.load(os.path.join(checkpoint_path, 'model.model'))
+
+    @staticmethod
+    def load_optimizer_state(optimizer, checkpoint_path):
+        with open(os.path.join(checkpoint_path, 'optimizer_state.pkl'), 'rb') as optimizerfile:
+            optimizer.load_state_dict(pkl.load(optimizerfile))
+
     def __init__(self, model_manip, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, max_steps):
         self.train_steps = []
         self.train_losses = []
@@ -248,15 +266,15 @@ class VariableLength(OneAtATimeDataset):
                 if lengths[j] < len(arg):
                     lengths[j] = len(arg)
         return dicts_into_batch([self.prepare_inputs(v_args, nv_args, lengths) for v_args, nv_args in data])
-    
+
     def get_one_item(self, index):
         variable_args, non_variable_args = self.get_raw_inputs(index)
-        lengths = (len(arg) for arg in variable_args)
+        lengths = [len(arg) for arg in variable_args]
         return self.prepare_inputs(variable_args, non_variable_args, lengths)
-        
+
     def get_raw_inputs(self, i):
         raise NotImplementedError
-    
+
     def prepare_inputs(self, args, non_variable_args, lengths):
         raise NotImplementedError
 

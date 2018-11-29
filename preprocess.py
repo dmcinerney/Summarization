@@ -61,6 +61,12 @@ def cnn_preprocess(example_str):
 def cnn_constraint(line):
     return len(line['text']) > 0 and len(line['summary']) > 0
 
+def pico_preprocess(line):
+    pass
+
+def pico_constraint(line):
+    pass
+
 if __name__ == '__main__':
     # for newsroom dataset
 #     filename = 'data/newsroom_dataset/train.data'
@@ -69,15 +75,22 @@ if __name__ == '__main__':
 #         trim_and_transform(oldfile, new_filename, newsroom_preprocess, newsroom_constraint)
 
     # for cnn dataset
-    filename = 'data/cnn_dataset/val.bin'
-    new_filename = 'data/cnn_dataset/val_processed.data'
-    def cnn_dataset_generator(filename):
-        with open(filename, "rb") as trainfile:
-            while True:
-                len_bytes = trainfile.read(8)
-                if not len_bytes: break # finished reading this file
-                str_len = struct.unpack('q', len_bytes)[0]
-                example_str = struct.unpack('%ds' % str_len, trainfile.read(str_len))[0]
-                yield example_str
+#     filename = 'data/cnn_dataset/val.bin'
+#     new_filename = 'data/cnn_dataset/val_processed.data'
+#     def cnn_dataset_generator(filename):
+#         with open(filename, "rb") as trainfile:
+#             while True:
+#                 len_bytes = trainfile.read(8)
+#                 if not len_bytes: break # finished reading this file
+#                 str_len = struct.unpack('q', len_bytes)[0]
+#                 example_str = struct.unpack('%ds' % str_len, trainfile.read(str_len))[0]
+#                 yield example_str
 
-    trim_and_transform(cnn_dataset_generator(filename), new_filename, cnn_preprocess, cnn_constraint)
+#     trim_and_transform(cnn_dataset_generator(filename), new_filename, cnn_preprocess, cnn_constraint)
+
+    # for pico dataset
+    filename = 'data/pico_dataset/pico_cdsr.csv'
+    new_filename = 'data/pico_dataset/train_processed.data'
+    df = pd.read_csv(filename)
+    def train_generator():
+        

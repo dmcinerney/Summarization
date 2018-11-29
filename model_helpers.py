@@ -253,8 +253,14 @@ class PointerInfo:
     def get_oov_holes(self):
         return self.oov_holes[self.valid_indices] if self.valid_indices is not None else self.oov_holes
 
-def loss_function(loss):
+def summarizer_loss(loss):
     return loss.mean()
 
-def error_function(loss):
+def summarizer_error(**kwargs):
+    return None
+
+def aspect_summarizer_loss(**kwargs):
+    return sum(v.mean() for k,v in kwargs.items())/len(kwargs)
+
+def aspect_summarizer_error(**kwargs):
     return None

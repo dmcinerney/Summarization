@@ -2,56 +2,7 @@ import os
 from pytorch_helper import VariableLength
 import pandas as pd
 import torch
-
-class SummarizationDataset:
-    def __init__(self, df):
-        self.df = df
-        
-    def read(self, i):
-        text = self.prepare_text(self.df.text[i])
-        summary = self.prepare_text(self.df.summary[i])
-        return text, summary
-    
-    def prepare_text(self, text):
-        return ['<start>'] + text + ['<end>']
-
-    def text_iterator(self):
-        return self.TextIterator(self)
-    
-    def __len__(self):
-        return len(self.df)
-
-    class TextIterator:
-        def __init__(self, dataset):
-            self.dataset = dataset
-
-        def __iter__(self):
-            for i in range(len(self.dataset)):
-                text, summary = self.dataset.read(i)
-                yield text
-                yield summary
-
-class PreprocessedSummarizationDataset(VariableLength):
-    def __init__(self, dataset, vectorizer, with_oov=False):
-        self.dataset = dataset
-        self.vectorizer = vectorizer
-        self.with_oov = with_oov
-        
-    def get_raw_inputs(self, i):
-        return self.dataset.read(i), None
-    
-    def prepare_inputs(self, v_args, nv_args, lengths):
-        text, summary = v_args
-        text_length_max, summary_length_max = lengths
-        text, text_length, text_oov_indices = self.vectorizer.get_text_indices(text, text_length_max)
-        summary, summary_length, _ = self.vectorizer.get_text_indices(summary, summary_length_max, oov_indices=text_oov_indices)
-        return_dict = dict(text=text, text_length=text_length, summary=summary, summary_length=summary_length)
-        if self.with_oov:
-            return_dict['text_oov_indices'] = text_oov_indices
-        return return_dict
-    
-    def __len__(self):
-        return len(self.dataset)
+from datasets import SummarizationDataset, PreprocessedSummarizationDataset
 
 
 class Vectorizer:
@@ -102,7 +53,7 @@ class Vectorizer:
                            if index >= 0 and index < len(self.word_vectors) else torch.randn(len(self.word_vectors[0]))#torch.zeros(len(self.word_vectors[0]))
         return vectors.float(), torch.tensor(len(text_indices))
 
-def get_data(data_file, vectorizer, with_oov=False):
+def get_data(data_file, vectorizer, with_oov=False, aspect_file=None):
     data = pd.read_json(data_file, lines=True, compression='gzip')
     print(len(data))
-    return PreprocessedSummarizationDataset(SummarizationDataset(data), vectorizer, with_oov=with_oov)
+    return PreprocessedSummarizationDataset(SummarizationDataset(data, aspect_file=aspect_file), vectorizer, with_oov=with_oov)
