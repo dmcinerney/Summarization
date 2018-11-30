@@ -4,11 +4,10 @@ import spacy, re
 import torch
 import numpy as np
 import json
-from pyrouge import Rouge155
 import pandas as pd
 from subprocess import call
 from pytorch_helper import IndicesIterator
-nlp = spacy.load('en', disable=['parser', 'tagger', 'ner'])
+nlp = spacy.load('en_core_web_sm', disable=['parser', 'tagger', 'ner'])
 
 def preprocess_text(text):
     text = re.sub(r'\s+', ' ', text.strip())

@@ -3,6 +3,8 @@ from newsroom import jsonl
 import os
 from utils import preprocess_text
 import parameters as p
+import pandas as pd
+import pdb
 
 def trim_and_transform(example_generator, new_filename, transformation, constraint):
     oldcount, newcount = 0, 0
@@ -62,35 +64,62 @@ def cnn_constraint(line):
     return len(line['text']) > 0 and len(line['summary']) > 0
 
 def pico_preprocess(line):
-    pass
+    line = dict(text=line.abstract, P=line.population, I=line.intervention, O=line.outcome)
+    if pico_constraint(line):
+        return {k:preprocess_text(v) for k,v in line.items()}
+    else:
+        return line
 
 def pico_constraint(line):
-    pass
+	return line['text'] == line['text'] and \
+	       line['P'] == line['P'] and \
+	       line['I'] == line['I'] and \
+	       line['O'] == line['O']
+
+def preprocess_newsroom_datafile(filename, new_filename):
+    with jsonl.open(filename, gzip=True) as oldfile:
+        trim_and_transform(oldfile, new_filename, newsroom_preprocess, newsroom_constraint)
+
+def preprocess_cnn_datafile(filename, new_filename):
+    def cnn_dataset_generator():
+        with open(filename, "rb") as trainfile:
+            while True:
+                len_bytes = trainfile.read(8)
+                if not len_bytes: break # finished reading this file
+                str_len = struct.unpack('q', len_bytes)[0]
+                example_str = struct.unpack('%ds' % str_len, trainfile.read(str_len))[0]
+                yield example_str
+    trim_and_transform(cnn_dataset_generator(), new_filename, cnn_preprocess, cnn_constraint)
+
+def preprocess_pico_dataset(filename, new_filename_train, new_filename_dev, new_filename_test):
+    df = pd.read_csv(filename)
+    def train_generator():
+        for i,row in df[:30000].iterrows():
+            yield row
+    def dev_generator():
+        for i,row in df[30000:40000].iterrows():
+            yield row
+    def test_generator():
+        for i,row in df[40000:].iterrows():
+            yield row
+    trim_and_transform(train_generator(), new_filename_train, pico_preprocess, pico_constraint)
+    trim_and_transform(dev_generator(), new_filename_dev, pico_preprocess, pico_constraint)
+    trim_and_transform(test_generator(), new_filename_test, pico_preprocess, pico_constraint)
 
 if __name__ == '__main__':
     # for newsroom dataset
-#     filename = 'data/newsroom_dataset/train.data'
-#     new_filename = 'data/newsroom_dataset/train_processed.data'
-#     with jsonl.open(filename, gzip=True) as oldfile:
-#         trim_and_transform(oldfile, new_filename, newsroom_preprocess, newsroom_constraint)
+    # filename = 'data/newsroom_dataset/train.data'
+    # new_filename = 'data/newsroom_dataset/train_processed.data'
+    # preprocess_newsroom_datafile(filename, new_filename)
 
     # for cnn dataset
-#     filename = 'data/cnn_dataset/val.bin'
-#     new_filename = 'data/cnn_dataset/val_processed.data'
-#     def cnn_dataset_generator(filename):
-#         with open(filename, "rb") as trainfile:
-#             while True:
-#                 len_bytes = trainfile.read(8)
-#                 if not len_bytes: break # finished reading this file
-#                 str_len = struct.unpack('q', len_bytes)[0]
-#                 example_str = struct.unpack('%ds' % str_len, trainfile.read(str_len))[0]
-#                 yield example_str
-
-#     trim_and_transform(cnn_dataset_generator(filename), new_filename, cnn_preprocess, cnn_constraint)
+    # filename = 'data/cnn_dataset/val.bin'
+    # new_filename = 'data/cnn_dataset/val_processed.data'
+    # preprocess_cnn_datafile(filename, new_filename)
 
     # for pico dataset
-    filename = 'data/pico_dataset/pico_cdsr.csv'
-    new_filename = 'data/pico_dataset/train_processed.data'
-    df = pd.read_csv(filename)
-    def train_generator():
-        
+    filename = '/Volumes/JEREDUSB/pico_cdsr.csv'
+    new_filename_train = '/Volumes/JEREDUSB/train_processed.data'
+    new_filename_dev = '/Volumes/JEREDUSB/dev_processed.data'
+    new_filename_test = '/Volumes/JEREDUSB/test_processed.data'
+    preprocess_pico_dataset(filename, new_filename_train, new_filename_dev, new_filename_test)
