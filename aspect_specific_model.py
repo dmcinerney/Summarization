@@ -1,12 +1,21 @@
 from model import Summarizer, Encoder, Decoder, PointerGenDecoder
+from model_helpers import PointerInfo, trim_text
 import parameters as p
 
 
 class AspectSummarizer(Summarizer):
     def __init__(self, vectorizer, start_index, end_index, aspects, lstm_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False):
-        super(AspectSummarizer, self).__init__()
         self.aspects = aspects
-        self.init_submodules()
+        super(AspectSummarizer, self).__init__(
+            vectorizer,
+            start_index,
+            end_index,
+            lstm_hidden=lstm_hidden,
+            attn_hidden=attn_hidden,
+            with_coverage=with_coverage,
+            gamma=gamma,
+            with_pointer=with_pointer
+        )
         self.curr_aspect = None
 
     def init_submodules(self):
@@ -20,7 +29,7 @@ class AspectSummarizer(Summarizer):
             for aspect in self.aspects:
                 kwargs[aspect] = None
                 kwargs[aspect+'_length'] = None
-        if len(kwargs) != len(self.aspects):
+        if len(kwargs) != 2*len(self.aspects):
             raise Exception
         text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
         final_return_dict = {}

@@ -5,6 +5,7 @@ from utils import preprocess_text
 import parameters as p
 import pandas as pd
 import pdb
+import pickle as pkl
 
 def trim_and_transform(example_generator, new_filename, transformation, constraint):
     oldcount, newcount = 0, 0
@@ -82,16 +83,16 @@ def preprocess_newsroom_datafile(filename, new_filename):
 
 def preprocess_cnn_datafile(filename, new_filename):
     def cnn_dataset_generator():
-        with open(filename, "rb") as trainfile:
+        with open(filename, "rb") as file:
             while True:
-                len_bytes = trainfile.read(8)
+                len_bytes = file.read(8)
                 if not len_bytes: break # finished reading this file
                 str_len = struct.unpack('q', len_bytes)[0]
-                example_str = struct.unpack('%ds' % str_len, trainfile.read(str_len))[0]
+                example_str = struct.unpack('%ds' % str_len, file.read(str_len))[0]
                 yield example_str
     trim_and_transform(cnn_dataset_generator(), new_filename, cnn_preprocess, cnn_constraint)
 
-def preprocess_pico_dataset(filename, new_filename_train, new_filename_dev, new_filename_test):
+def preprocess_pico_dataset(filename, new_filename_train, new_filename_dev, new_filename_test, aspect_file):
     df = pd.read_csv(filename)
     def train_generator():
         for i,row in df[:30000].iterrows():
@@ -105,6 +106,8 @@ def preprocess_pico_dataset(filename, new_filename_train, new_filename_dev, new_
     trim_and_transform(train_generator(), new_filename_train, pico_preprocess, pico_constraint)
     trim_and_transform(dev_generator(), new_filename_dev, pico_preprocess, pico_constraint)
     trim_and_transform(test_generator(), new_filename_test, pico_preprocess, pico_constraint)
+    with open(aspect_file, 'w') as aspectfile:
+        aspectfile.write(str(['P','I','O']))
 
 if __name__ == '__main__':
     # for newsroom dataset
@@ -118,8 +121,11 @@ if __name__ == '__main__':
     # preprocess_cnn_datafile(filename, new_filename)
 
     # for pico dataset
-    filename = '/Volumes/JEREDUSB/pico_cdsr.csv'
-    new_filename_train = '/Volumes/JEREDUSB/train_processed.data'
-    new_filename_dev = '/Volumes/JEREDUSB/dev_processed.data'
-    new_filename_test = '/Volumes/JEREDUSB/test_processed.data'
-    preprocess_pico_dataset(filename, new_filename_train, new_filename_dev, new_filename_test)
+    aspect_file = '/Volumes/JEREDUSB/aspects.txt'
+    # filename = '/Volumes/JEREDUSB/pico_cdsr.csv'
+    # new_filename_train = '/Volumes/JEREDUSB/train_processed.data'
+    # new_filename_dev = '/Volumes/JEREDUSB/dev_processed.data'
+    # new_filename_test = '/Volumes/JEREDUSB/test_processed.data'
+    # preprocess_pico_dataset(filename, new_filename_train, new_filename_dev, new_filename_test, aspect_file)
+    with open(aspect_file, 'w') as aspectfile:
+        aspectfile.write(str(['P','I','O']))
