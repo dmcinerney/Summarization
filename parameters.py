@@ -1,19 +1,19 @@
 import torch
 
-ASPECT_FILE = '/VOLUMES/JEREDUSB/aspects.txt'
-#WORD2VEC_FILE = 'data/cnn_dataset/word2vec.model'
-#DATA_FILE = 'data/cnn_dataset/train_processed.data'
-#VAL_FILE = 'data/cnn_dataset/val_processed.data'
-WORD2VEC_FILE = '/VOLUMES/JEREDUSB/word2vec.model'
-DATA_FILE = '/VOLUMES/JEREDUSB/train_processed.data'
-VAL_FILE = '/VOLUMES/JEREDUSB/dev_processed.data'
-MODE = 'train'
+ASPECT_FILE = None
+WORD2VEC_FILE = 'data/cnn_dataset/word2vec.model'
+DATA_FILE = 'data/cnn_dataset/train_processed.data'
+VAL_FILE = 'data/cnn_dataset/val_processed.data'
+#WORD2VEC_FILE = '/VOLUMES/JEREDUSB/word2vec.model'
+#DATA_FILE = '/VOLUMES/JEREDUSB/train_processed.data'
+#VAL_FILE = '/VOLUMES/JEREDUSB/dev_processed.data'
+MODE = 'visualize'
 CONTINUE_FROM_CHECKPOINT = True
-CHECKPOINT_PATH = '/VOLUMES/JEREDUSB/checkpoint'
-MODEL_FILE = '/VOLUMES/JEREDUSB/model.model'
+CHECKPOINT_PATH = 'checkpoint4'
+MODEL_FILE = 'checkpoint4/model.model'
 POINTER_GEN = True
-VISUALIZATION_FILE = '/VOLUMES/JEREDUSB/attn_vis_data.json'
-TRAINING_PLOTS_PATH = '/VOLUMES/JEREDUSB/graphs'
+VISUALIZATION_FILE = 'checkpoint4/attn_vis_data.json'
+TRAINING_PLOTS_PATH = 'checkpoint4/'
 MAX_TRAINING_STEPS = None
 
 # hyperparameters

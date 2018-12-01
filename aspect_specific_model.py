@@ -31,8 +31,9 @@ class AspectSummarizer(Summarizer):
                 kwargs[aspect+'_length'] = None
         if len(kwargs) != 2*len(self.aspects):
             raise Exception
+        decoding = next(kwargs.values()) is None
+        final_return_values = {} if not decoding else []
         text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
-        final_return_dict = {}
         for i,aspect in enumerate(self.aspects):
             self.curr_aspect = i
             text_states, (h, c) = self.encoder(text, text_length)
@@ -41,11 +42,14 @@ class AspectSummarizer(Summarizer):
             summary, summary_length = kwargs[aspect], kwargs[aspect+'_length']
             if summary is not None:
                 summary, summary_length = trim_text(summary, summary_length, p.MAX_SUMMARY_LENGTH)
-            return_dict = self.decoder(text_states, text_length, h, c, summary=summary, summary_length=summary_length, beam_size=beam_size)
-            for k,v in return_dict.items():
-                final_return_dict[k+'_'+aspect] = v
+            return_values = self.decoder(text_states, text_length, h, c, summary=summary, summary_length=summary_length, beam_size=beam_size)
+            if decoding:
+                final_return_values.append(return_values)
+            else:
+                for k,v in return_values.items():
+                    final_return_values[k+'_'+aspect] = v
         self.curr_aspect = None
-        return final_return_dict
+        return final_return_values
 
     @property
     def encoder(self):

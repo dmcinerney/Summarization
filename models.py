@@ -255,6 +255,7 @@ class PointerGenDecoder(Decoder):
         # get indices to add at
         add_at_indices = word_indices.expand(text.size(0),word_indices.size(0)).long()
         add_at_indices[add_at_indices < 0] += new_vocab_size[1].long()
+        pdb.set_trace()
         final_vocab_dist = (p_gen*vocab_dist_probs).scatter_add(1, add_at_indices, (1-p_gen)*word_probabilities)
 
         return final_vocab_dist, h_t, c_t, attention_t, context_vector
