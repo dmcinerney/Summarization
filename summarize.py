@@ -6,7 +6,7 @@ from aspect_specific_model import AspectSummarizer
 from model_helpers import aspect_summarizer_loss, aspect_summarizer_error
 from pytorch_helper import ModelManipulator, TrainingTracker, plot_learning_curves, plot_checkpoint
 import torch
-from utils import summarize, print_batch, visualize, produce_summary_files
+from utils import summarize, print_batch, visualize as vis, produce_summary_files
 import pdb
 import parameters as p
 import pickle as pkl
@@ -20,7 +20,7 @@ def train(vectorizer):
     if p.CONTINUE_FROM_CHECKPOINT:
         # check if all of the proper files exist
         if not TrainingTracker.valid_checkpoint(p.CHECKPOINT_PATH):
-            print("Cannot continue from checkpoint because not all of the proper files exist; restarting.")
+            print("Cannot continue from checkpoint because not all of the proper files exist; restarting training.")
             p.CONTINUE_FROM_CHECKPOINT = False
         else:
             print("Loading from the last checkpoint; this expects the same datafile as before.")
@@ -91,7 +91,7 @@ def train(vectorizer):
 
 
 def evaluate(vectorizer):
-    data = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN)
+    data = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
     model = torch.load(p.MODEL_FILE)
     produce_summary_files(
         data,
@@ -100,30 +100,34 @@ def evaluate(vectorizer):
         model,
         'rouge',
         beam_size=p.BEAM_SIZE,
-        max_num_batch=None
+        max_num_batch=10
     )
     # TODO: run rouge
     # run_rouge()
 
 
 def visualize(vectorizer):
-    data = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN)
+    data = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
     model = torch.load(p.MODEL_FILE)
     batch = data[:p.DECODING_BATCH_SIZE]
-    results = summarize(batch, model, beam_size=p.BEAM_SIZE)
-    print_batch(batch, results[0], vectorizer)
-    visualize(p.VISUALIZATION_FILE, batch, results[0], vectorizer, 0, pointer_gen=p.POINTER_GEN)
+    aspect_results = summarize(batch, model, beam_size=p.BEAM_SIZE)
+    print_batch(batch, [r[0] for r in aspect_results], vectorizer, model.aspects)
+    vis(p.VISUALIZATION_FILE, batch, [r[0] for r in aspect_results], vectorizer, model.aspects, 0, 0, pointer_gen=p.POINTER_GEN)
 
 
 if __name__ == '__main__':
     if not os.path.exists(p.WORD2VEC_FILE):
         train_word2vec_model(p.DATA_FILE, p.WORD2VEC_FILE, p.EMBEDDING_DIM, aspect_file=p.ASPECT_FILE)
-    print("retreiving word2vec model from file")
+    print('retreiving word2vec model from file')
     vectorizer = Vectorizer(Word2Vec.load(p.WORD2VEC_FILE))
+    print('vocabulary length is %i' % len(vectorizer))
 
     if p.MODE == 'train':
+        print('TRAINING')
         train(vectorizer)
     elif p.MODE == 'eval':
+        print('EVALUATING')
         evaluate(vectorizer)
     elif p.MODE == 'visualize':
+        print('VISUALIZING')
         visualize(vectorizer)

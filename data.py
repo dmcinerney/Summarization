@@ -3,6 +3,7 @@ from pytorch_helper import VariableLength
 import pandas as pd
 import torch
 from datasets import SummarizationDataset, PreprocessedSummarizationDataset
+import pdb
 
 
 class Vectorizer:
@@ -15,6 +16,9 @@ class Vectorizer:
             self.word_indices[k] = i
             self.word_vectors[i] = torch.tensor(v)
             self.words.append(k)
+
+    def __len__(self):
+        return len(self.words)
         
     def get_text_indices(self, text, max_length, oov_indices=None):
         if max_length < len(text):
@@ -31,16 +35,17 @@ class Vectorizer:
         return indices.int(), torch.tensor(len(text)), oov_indices
 
     def get_index_words(self, text_indices, oov_words=None):
+        if (text_indices >= len(self.word_indices)).any():
+            raise Exception
         word_list = []
         for i in text_indices:
-            if i < len(self.words) and i >= 0:
+            if i >= 0:
                 word = self.words[i]
             else:
-                i_temp = len(oov_words)+len(self.words)-i-1 if oov_words is not None and i >= len(self.words) else -i-1
-                if oov_words is None or i_temp >= len(oov_words):
+                if oov_words is None or i < -len(oov_words):
                     word = 'oov'
                 else:
-                    word = oov_words[i_temp]
+                    word = oov_words[-i-1]
             word_list.append(word)
         return word_list
 
@@ -54,6 +59,7 @@ class Vectorizer:
         return vectors.float(), torch.tensor(len(text_indices))
 
 def get_data(data_file, vectorizer, with_oov=False, aspect_file=None):
+    print('reading data from '+data_file)
     data = pd.read_json(data_file, lines=True, compression='gzip')
-    print(len(data))
+    print('data read, length is %i' % len(data))
     return PreprocessedSummarizationDataset(SummarizationDataset(data, aspect_file=aspect_file), vectorizer, with_oov=with_oov)

@@ -31,7 +31,7 @@ class AspectSummarizer(Summarizer):
                 kwargs[aspect+'_length'] = None
         if len(kwargs) != 2*len(self.aspects):
             raise Exception
-        decoding = next(kwargs.values()) is None
+        decoding = next(iter(kwargs.values())) is None
         final_return_values = {} if not decoding else []
         text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
         for i,aspect in enumerate(self.aspects):

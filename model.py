@@ -91,9 +91,14 @@ class Decoder(nn.Module):
         coverage = torch.zeros((batch_length, text_states.size(1)), device=device)
         hypothesis = GeneratedSummaryHypothesis(self, generated_summary, text_states, text_length, h, c, coverage)
 
-        results = beam_search(hypothesis.next_hypotheses(beam_size), beam_size)
+        summary_hyps = beam_search(hypothesis.next_hypotheses(beam_size), beam_size)
+        results = [summary_hyp.generated_summary.return_info() for summary_hyp in summary_hyps]
 
-        return [r.generated_summary.return_info() for r in results]
+        for r in results:
+            indices = r[0]
+            self.map_generated_indices_(indices)
+
+        return results
 
     # implements the forward pass of the decoder for training
     # this uses teacher forcing, but conceivably one could try
@@ -119,8 +124,10 @@ class Decoder(nn.Module):
             summary_tp1 = summary[:,t+1]
 
             # calculate log prob, calculate covloss if aplicable, update coverage if aplicable
+            summary_tp1_valid = summary_tp1[valid_indices]
+            self.map_input_indices_(summary_tp1_valid)
             log_prob = torch.zeros(batch_length, device=device)
-            log_prob[valid_indices] = self.calculate_log_prob(vocab_dist, summary_tp1[valid_indices])
+            log_prob[valid_indices] = self.calculate_log_prob(vocab_dist, summary_tp1_valid)
             if self.with_coverage:
                 covloss = torch.zeros(batch_length, device=device)
                 covloss[valid_indices] = self.calculate_covloss(coverage[valid_indices], attention[valid_indices])
@@ -163,7 +170,6 @@ class Decoder(nn.Module):
 
     # calulates the log probability of the summary at a time step given the vocab distribution for that time step
     def calculate_log_prob(self, vocab_dist, summary_tp1):
-        self.map_oov_indices(summary_tp1)
         return torch.log(vocab_dist[torch.arange(summary_tp1.size(0)).long(),summary_tp1.long()])
 
     # calculates the coverage loss for each batch example at a time step
@@ -172,8 +178,11 @@ class Decoder(nn.Module):
 
     # map oov indices maps the indices of oov words to a specific index corresponding to the position in the vocab distribution
     # that represents an oov word
-    def map_oov_indices(self, indices):
-        indices[indices < 0] = -1
+    def map_input_indices_(self, indices):
+        indices[indices == -1] = len(self.vectorizer.word_vectors)
+
+    def map_generated_indices_(self, indices):
+        indices[indices == len(self.vectorizer.word_vectors)] = -1
 
     # this adds any extra information you may want to add to a summary
     def get_extras(self):
@@ -198,17 +207,9 @@ class PointerGenDecoder(Decoder):
         self.pointer_info = None
         return return_values
 
-    def decode_generate(self, *args, **kwargs):
-        return_values = super(PointerGenDecoder, self).decode_generate(*args, **kwargs)
-        for v in return_values:
-            summary = v[0]
-            summary[summary >= len(self.vectorizer.word_vectors)] -= (len(self.vectorizer.word_vectors)+1+self.pointer_info.max_num_oov)
-        return return_values
-
     def timestep_wrapper(self, valid_indices, summary_t, text_states, text_length, h, c, coverage):
         self.pointer_info.update_valid_indices(valid_indices)
-        return_values = super(PointerGenDecoder, self).timestep_wrapper(valid_indices, summary_t, text_states, text_length, h, c, coverage)
-        return return_values
+        return super(PointerGenDecoder, self).timestep_wrapper(valid_indices, summary_t, text_states, text_length, h, c, coverage)
 
     def timestep(self, summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t):
         if self.pointer_info is None:
@@ -260,7 +261,7 @@ class PointerGenDecoder(Decoder):
         return final_vocab_dist, h_t, c_t, attention_t, context_vector
 
     # this changes it so that only words that don't appear in the text and the static vocab are mapped to the oov index
-    def map_oov_indices(self, indices):
+    def map_input_indices_(self, indices):
         # set oov not in text to oov index
         indices[indices < -self.pointer_info.max_num_oov] = len(self.vectorizer.word_vectors)
         oov_places = torch.nonzero(indices < 0)
@@ -269,6 +270,8 @@ class PointerGenDecoder(Decoder):
             holes = self.pointer_info.get_oov_holes()
             indices[batch_indices[holes[batch_indices, oov_indices.long()].byte()]] = len(self.vectorizer.word_vectors)
 
+    def map_generated_indices_(self, indices):
+        indices[indices >= len(self.vectorizer.word_vectors)] -= (len(self.vectorizer.word_vectors)+1+self.pointer_info.max_num_oov)
 
     def get_extras(self):
         return (self.pointer_info.current_p_gen,)

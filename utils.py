@@ -8,6 +8,7 @@ import pandas as pd
 from subprocess import call
 from pytorch_helper import IndicesIterator
 nlp = spacy.load('en_core_web_sm', disable=['parser', 'tagger', 'ner'])
+import pdb
 
 def preprocess_text(text):
     text = re.sub(r'\s+', ' ', text.strip())
@@ -21,10 +22,10 @@ def produce_attention_visualization_file(filename, text, reference_summary, deco
             'abstract_str': reference_summary,
             'attn_dists': attentions,
             'p_gens': p_gens}
-    
+
     with open(filename, 'w') as outfile:
         json.dump(data, outfile)
-        
+
 def summarize(batch, model, beam_size=1):
     device = list(model.parameters())[0].device
     if model.with_pointer:
@@ -49,14 +50,14 @@ def get_text_triplets(batch, aspect_summaries, vectorizer, aspects):
             reference_summaries.append(reference_summary)
             decoded_summaries.append(decoded_summary)
 
-        text_triplets.append((text,reference_summary,decoded_summary))
+        text_triplets.append((text,reference_summaries,decoded_summaries))
     return text_triplets
 
 def postprocess(text_tokens):
     return [token for token in text_tokens if token[0] != '<' or token[-1] != '']
 
 def rouge_preprocess(text_tokens):
-    text_tokens = post_process(text_tokens)
+    text_tokens = postprocess(text_tokens)
     return " ".join(text_tokens).replace(" . ", " .\n").replace(" ! ", " !\n").replace(" ? ", " ?\n")
 
 def produce_batch_summary_files(batch, vectorizer, model, path, beam_size=1, start_index=0):
@@ -66,7 +67,7 @@ def produce_batch_summary_files(batch, vectorizer, model, path, beam_size=1, sta
     for text,reference_summaries,decoded_summaries in text_triplets:
         with open(os.path.join(path,"articles/article"+str(i)+"_text.txt"), "w") as textfile:
             textfile.write(rouge_preprocess(text))
-        for j,aspect in enumerate(model.apsects):
+        for j,aspect in enumerate(model.aspects):
             reference = reference_summaries[j]
             decoded = decoded_summaries[j]
             with open(os.path.join(path, aspect, "reference/article"+str(i)+"_reference.txt"), "w") as referencefile:
@@ -75,7 +76,7 @@ def produce_batch_summary_files(batch, vectorizer, model, path, beam_size=1, sta
                 decodedfile.write(rouge_preprocess(decoded))
         i += 1
     return i
-    
+
 def produce_summary_files(dataset, batch_size, vectorizer, model, path, beam_size=1, max_num_batch=None):
     start_index = 0
     for i,indices in IndicesIterator(len(dataset), batch_size=batch_size, shuffle=True):
@@ -106,6 +107,7 @@ def print_batch(batch, aspect_summaries, vectorizer, aspects):
             print(aspect+" decoded summary", decoded_summary)
             loss = aspect_summaries[j][2][i]
             print(loss)
+        print('')
         
 def visualize(filename, batch, aspect_summaries, vectorizer, aspects, i, j, pointer_gen=False):
     triplets = get_text_triplets(batch, aspect_summaries, vectorizer, aspects)

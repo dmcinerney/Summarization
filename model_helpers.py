@@ -78,8 +78,8 @@ class GeneratedSummary:
         return new_generated_summaries
 
     def __init__(self, batch_length=None, device=None, start_index=None, end_index=None, summary=None, summary_length=None, valid_indices=None, loss_unnormalized=None, extras=None):
-        self.summary = torch.zeros((batch_length,1), device=device).long()+start_index if summary is None else summary
-        self.summary_length = (torch.zeros(batch_length, device=device).long()-1) if summary_length is None else summary_length
+        self.summary = torch.zeros((batch_length,1), device=device).int()+start_index if summary is None else summary
+        self.summary_length = (torch.zeros(batch_length, device=device).int()-1) if summary_length is None else summary_length
         self.valid_indices = torch.arange(self.summary_length.size(0), device=self.summary_length.device)[self.summary_length < 0]
         self.end_index = end_index
         self.loss_unnormalized = torch.zeros(batch_length, device=device) if loss_unnormalized is None else loss_unnormalized
@@ -186,8 +186,8 @@ class GeneratedSummaryHypothesis(Hypothesis):
             generated_summary_temp = self.generated_summary.copy()
 
             # generate next summary words
-            summary_tp1 = torch.zeros(self.batch_length, device=self.device).long()
-            summary_tp1[valid_indices] = word_indices[:,i]
+            summary_tp1 = torch.zeros(self.batch_length, device=self.device).int()
+            summary_tp1[valid_indices] = word_indices[:,i].int()
 
             # calculate log prob, calculate covloss if aplicable, update coverage if aplicable
             log_prob = torch.zeros(self.batch_length, device=self.device)

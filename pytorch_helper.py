@@ -140,6 +140,7 @@ class TrainingTracker:
             # get epoch
             with open(os.path.join(self.checkpoint_path, 'iternum.txt'), 'r') as iternumfile:
                 i, self.step_num = eval(iternumfile.read())
+                self.step_num += 1
             # get indices iterator
             with open(os.path.join(self.checkpoint_path, 'indices_iterator.pkl'), 'rb') as iteratorfile:
                 indices_iterator = pkl.load(iteratorfile)
