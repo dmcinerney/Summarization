@@ -235,11 +235,14 @@ class PointerInfo:
         # get out of vocabulary holes for mapping later
         # text_oov_indicator - a batch_size by max_seq_length by max_num_oov matrix where
         # the (i, j, k) element indicates whether the jth word of the ith example is the kth oov index
-        text_oov_indicator = text.unsqueeze(2) == -1-torch.arange(self.max_num_oov, device=text.device).int().view(1,1,-1)
-        # example_oov_indicator - a batch_size by max_num_oov matrix where
-        # the (i, j) element indicates whether the jth oov index is present in the ith example
-        example_oov_indicator = text_oov_indicator.sum(1) > 0
-        self.oov_holes = example_oov_indicator == 0
+        if self.max_num_oov != 0:
+            text_oov_indicator = text.unsqueeze(2) == -1-torch.arange(self.max_num_oov, device=text.device).int().view(1,1,-1)
+            # example_oov_indicator - a batch_size by max_num_oov matrix where
+            # the (i, j) element indicates whether the jth oov index is present in the ith example
+            example_oov_indicator = text_oov_indicator.sum(1) > 0
+            self.oov_holes = example_oov_indicator == 0
+        else:
+            self.oov_holes = None
 
     def update_valid_indices(self, valid_indices):
         self.valid_indices = valid_indices
