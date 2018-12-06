@@ -54,7 +54,7 @@ def get_text_triplets(batch, aspect_summaries, vectorizer, aspects):
     return text_triplets
 
 def postprocess(text_tokens):
-    return [token for token in text_tokens if token[0] != '<' or token[-1] != '']
+    return [token for token in text_tokens if token[0] != '<' or token[-1] != '>']
 
 def rouge_preprocess(text_tokens):
     text_tokens = postprocess(text_tokens)
@@ -70,9 +70,9 @@ def produce_batch_summary_files(batch, vectorizer, model, path, beam_size=1, sta
         for j,aspect in enumerate(model.aspects):
             reference = reference_summaries[j]
             decoded = decoded_summaries[j]
-            with open(os.path.join(path, aspect, "reference/article"+str(i)+"_reference.txt"), "w") as referencefile:
+            with open(os.path.join(path, "reference/article"+str(i)+"_reference_"+aspect+".txt"), "w") as referencefile:
                 referencefile.write(rouge_preprocess(reference))
-            with open(os.path.join(path, aspect, "system/article"+str(i)+"_system.txt"), "w") as decodedfile:
+            with open(os.path.join(path, "system/article"+str(i)+"_system_"+aspect+".txt"), "w") as decodedfile:
                 decodedfile.write(rouge_preprocess(decoded))
         i += 1
     return i
@@ -87,8 +87,7 @@ def produce_summary_files(dataset, batch_size, vectorizer, model, path, beam_siz
             break
 
 def run_rouge():
-#     call(["-Drouge.prop=rouge/ROUGE-2/rouge.properties"])
-#     call(["java", "-jar", "rouge/ROUGE-2/rouge2-1.2.jar"])
+    call(['java', '-Drouge.prop=rouge/ROUGE-2/rouge.properties', '-jar', 'rouge/ROUGE-2/rouge2-1.2.jar'])
     df = pd.read_csv("rouge/ROUGE-2/results.csv")
     rouge1 = df[df['ROUGE-Type'] == 'ROUGE-1+StopWordRemoval']['Avg_F-Score'].mean()*100
     rouge2 = df[df['ROUGE-Type'] == 'ROUGE-2+StopWordRemoval']['Avg_F-Score'].mean()*100
@@ -108,7 +107,7 @@ def print_batch(batch, aspect_summaries, vectorizer, aspects):
             loss = aspect_summaries[j][2][i]
             print(loss)
         print('')
-        
+
 def visualize(filename, batch, aspect_summaries, vectorizer, aspects, i, j, pointer_gen=False):
     triplets = get_text_triplets(batch, aspect_summaries, vectorizer, aspects)
     text, reference_summaries, decoded_summaries = triplets[i]

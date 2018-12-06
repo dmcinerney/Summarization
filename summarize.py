@@ -6,7 +6,7 @@ from aspect_specific_model import AspectSummarizer
 from model_helpers import aspect_summarizer_loss, aspect_summarizer_error
 from pytorch_helper import ModelManipulator, TrainingTracker, plot_learning_curves, plot_checkpoint
 import torch
-from utils import summarize, print_batch, visualize as vis, produce_summary_files
+from utils import summarize, print_batch, visualize as vis, produce_summary_files, run_rouge
 import pdb
 import parameters as p
 import pickle as pkl
@@ -100,10 +100,9 @@ def evaluate(vectorizer):
         model,
         'rouge',
         beam_size=p.BEAM_SIZE,
-        max_num_batch=10
+        max_num_batch=None
     )
-    # TODO: run rouge
-    # run_rouge()
+    run_rouge()
 
 
 def visualize(vectorizer):
