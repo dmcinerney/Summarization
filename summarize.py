@@ -1,6 +1,7 @@
 from gensim.models import Word2Vec
-from data import get_data, Vectorizer
-from train_word2vec import train_word2vec_model
+from gensim.corpora import Dictionary
+from data import get_data, Word2VecVectorizer, TrainableVectorizer
+from word_models import train_word2vec_model, save_dictionary
 import os
 from aspect_specific_model import AspectSummarizer
 from model_helpers import aspect_summarizer_loss, aspect_summarizer_error
@@ -100,9 +101,9 @@ def evaluate(vectorizer):
         model,
         'rouge',
         beam_size=p.BEAM_SIZE,
-        max_num_batch=None
+        max_num_batch=250
     )
-    run_rouge()
+    run_rouge(save_to=os.path.join(p.CHECKPOINT_PATH, 'rouge_scores.txt') if p.CHECKPOINT_PATH is not None else None)
 
 
 def visualize(vectorizer):
@@ -118,7 +119,11 @@ if __name__ == '__main__':
     if not os.path.exists(p.WORD2VEC_FILE):
         train_word2vec_model(p.DATA_FILE, p.WORD2VEC_FILE, p.EMBEDDING_DIM, aspect_file=p.ASPECT_FILE)
     print('retreiving word2vec model from file')
-    vectorizer = Vectorizer(Word2Vec.load(p.WORD2VEC_FILE))
+    vectorizer = Word2VecVectorizer(Word2Vec.load(p.WORD2VEC_FILE))
+#     if not os.path.exists(p.DICTIONARY_FILE):
+#         save_dictionary(p.DATA_FILE, p.DICTIONARY_FILE, aspect_file=p.ASPECT_FILE)
+#     print('retreiving dictionary from file')
+#     vectorizer = TrainableVectorizer(Dictionary.load(p.DICTIONARY_FILE), p.EMBEDDING_DIM)
     print('vocabulary length is %i' % len(vectorizer))
 
     if p.MODE == 'train':

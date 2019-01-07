@@ -15,11 +15,10 @@ import pdb
 class Summarizer(nn.Module):
     def __init__(self, vectorizer, start_index, end_index, lstm_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False):
         super(Summarizer, self).__init__()
-
         self.vectorizer = vectorizer
         self.start_index = start_index
         self.end_index = end_index
-        self.lstm_hidden = len(vectorizer.word_vectors[0])//2 if lstm_hidden is None else lstm_hidden
+        self.lstm_hidden = vectorizer.vector_size//2 if lstm_hidden is None else lstm_hidden
         self.attn_hidden = attn_hidden
         self.with_coverage = with_coverage
         self.gamma = gamma
@@ -44,15 +43,15 @@ class Encoder(nn.Module):
     def __init__(self, vectorizer, lstm_hidden):
         super(Encoder, self).__init__()
         self.vectorizer = vectorizer
-        num_features = len(self.vectorizer.word_vectors[0])
+        num_features = self.vectorizer.vector_size
 
         self.text_encoder = TextEncoder(num_features, lstm_hidden)
         self.state_encoder = StateEncoder(lstm_hidden)
 
     def forward(self, text, text_length):
         # get batch with vectors from index batch
-        text = [self.vectorizer.get_text_matrix(example[:text_length[i]], text.size(1))[0].unsqueeze(0) for i,example in enumerate(text)]
-        text = torch.cat(text, 0)
+#         text = torch.cat([self.vectorizer.get_text_matrix(example[:text_length[i]], text.size(1))[0].unsqueeze(0) for i,example in enumerate(text)], 0)
+        text = self.vectorizer(text, text_length)
 
         # run text through lstm encoder
         text_states, (h, c) = self.text_encoder(text, text_length)
@@ -64,18 +63,22 @@ class Decoder(nn.Module):
     def __init__(self, vectorizer, start_index, end_index, lstm_hidden, attn_hidden=None, with_coverage=False, gamma=1):
         super(Decoder, self).__init__()
         self.vectorizer = vectorizer
-        num_features = len(self.vectorizer.word_vectors[0])
-        num_vocab = len(self.vectorizer.word_vectors)
         self.start_index = start_index
         self.end_index = end_index
-        attn_hidden = num_features//2 if attn_hidden is None else attn_hidden
+        self.lstm_hidden = lstm_hidden
+        self.attn_hidden = num_features//2 if attn_hidden is None else attn_hidden
         self.with_coverage = with_coverage
         self.gamma = gamma
 
-        self.summary_decoder = nn.LSTMCell(num_features, lstm_hidden)
+        self.num_features = self.vectorizer.vector_size
+        self.num_vocab = self.vectorizer.vocab_size
+        self.init_submodules()
+
+    def init_submodules(self):
+        self.summary_decoder = nn.LSTMCell(self.num_features, self.lstm_hidden)
         init_lstm_weights(self.summary_decoder)
-        self.context_nn = ContextVectorNN(lstm_hidden*3+1, attn_hidden)
-        self.vocab_nn = VocabularyDistributionNN(lstm_hidden*3, num_vocab+1)
+        self.context_nn = ContextVectorNN(self.lstm_hidden*4+1, self.attn_hidden)
+        self.vocab_nn = VocabularyDistributionNN(self.lstm_hidden*3, self.lstm_hidden, self.num_vocab+1)
 
     def forward(self, text_states, text_length, h, c, summary=None, summary_length=None, beam_size=1):
         if summary is None:
@@ -161,10 +164,12 @@ class Decoder(nn.Module):
     # and other necessary information: inputs to the next hidden state in the decoder, attention, and the context vector
     # (the context vector is only needed in the subclass of this so kinda bad style but whatever)
     def timestep(self, summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t):
-        summary_vec_t = self.vectorizer.get_text_matrix(summary_t, len(summary_t))[0]
+#         summary_vec_t = self.vectorizer.get_text_matrix(summary_t, len(summary_t))[0]
+        summary_vec_t = self.vectorizer(summary_t.unsqueeze(1), torch.ones(summary_t.size(0), device=summary_t.device).long())[:,0]
 
         h_t, c_t = self.summary_decoder(summary_vec_t, (h_t, c_t))
-        context_vector, attention_t = self.context_nn(text_states_t, text_length_t, h_t, coverage_t)
+        summary_current_state = torch.cat((h_t, c_t), 1)
+        context_vector, attention_t = self.context_nn(text_states_t, text_length_t, summary_current_state, coverage_t)
         vocab_dist = self.vocab_nn(context_vector, h_t)
         return vocab_dist, h_t, c_t, attention_t, context_vector
 
@@ -179,10 +184,10 @@ class Decoder(nn.Module):
     # map oov indices maps the indices of oov words to a specific index corresponding to the position in the vocab distribution
     # that represents an oov word
     def map_input_indices_(self, indices):
-        indices[indices == -1] = len(self.vectorizer.word_vectors)
+        indices[indices == -1] = self.vectorizer.vocab_size
 
     def map_generated_indices_(self, indices):
-        indices[indices == len(self.vectorizer.word_vectors)] = -1
+        indices[indices == self.vectorizer.vocab_size] = -1
 
     # this adds any extra information you may want to add to a summary
     def get_extras(self):
@@ -194,9 +199,11 @@ class Decoder(nn.Module):
 class PointerGenDecoder(Decoder):
     def __init__(self, *args, **kwargs):
         super(PointerGenDecoder, self).__init__(*args, **kwargs)
-        lstm_hidden = args[3]
-        self.probability_layer = ProbabilityNN(lstm_hidden*3)
         self.pointer_info = None
+
+    def init_submodules(self):
+        super(PointerGenDecoder, self).init_submodules()
+        self.probability_layer = ProbabilityNN(self.lstm_hidden*3)
 
     def set_pointer_info(self, pointer_info):
         self.pointer_info = pointer_info
@@ -263,15 +270,15 @@ class PointerGenDecoder(Decoder):
     # this changes it so that only words that don't appear in the text and the static vocab are mapped to the oov index
     def map_input_indices_(self, indices):
         # set oov not in text to oov index
-        indices[indices < -self.pointer_info.max_num_oov] = len(self.vectorizer.word_vectors)
+        indices[indices < -self.pointer_info.max_num_oov] = self.vectorizer.vocab_size
         oov_places = torch.nonzero(indices < 0)
         if oov_places.dim() > 1:
             batch_indices, oov_indices = oov_places[:,0], -1-indices[oov_places[:,0]]
             holes = self.pointer_info.get_oov_holes()
-            indices[batch_indices[holes[batch_indices, oov_indices.long()].byte()]] = len(self.vectorizer.word_vectors)
+            indices[batch_indices[holes[batch_indices, oov_indices.long()].byte()]] = self.vectorizer.vocab_size
 
     def map_generated_indices_(self, indices):
-        indices[indices >= len(self.vectorizer.word_vectors)] -= (len(self.vectorizer.word_vectors)+1+self.pointer_info.max_num_oov)
+        indices[indices >= self.vectorizer.vocab_size] -= (self.vectorizer.vocab_size+1+self.pointer_info.max_num_oov)
 
     def get_extras(self):
         return (self.pointer_info.current_p_gen,)

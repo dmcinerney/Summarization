@@ -62,7 +62,7 @@ def cnn_preprocess(example_str):
     return dict(text=article, summary=abstract)
 
 def cnn_constraint(line):
-    return len(line['text']) > 0 and len(line['summary']) > 0
+    return len(line['text']) > 0 and len(line['summary']) > 0 #and len(line['text']) < 500
 
 def pico_preprocess(line):
     line = dict(text=line.abstract, P=line.population, I=line.intervention, O=line.outcome)
@@ -116,16 +116,16 @@ if __name__ == '__main__':
     # preprocess_newsroom_datafile(filename, new_filename)
 
     # for cnn dataset
-    # filename = 'data/cnn_dataset/val.bin'
-    # new_filename = 'data/cnn_dataset/val_processed.data'
-    # preprocess_cnn_datafile(filename, new_filename)
+    filename = 'data/cnn_dataset/val.bin'
+    new_filename = 'data/cnn_dataset/val_processed.data'
+    preprocess_cnn_datafile(filename, new_filename)
 
     # for pico dataset
-    aspect_file = '/Volumes/JEREDUSB/aspects.txt'
+    # aspect_file = '/Volumes/JEREDUSB/aspects.txt'
     # filename = '/Volumes/JEREDUSB/pico_cdsr.csv'
     # new_filename_train = '/Volumes/JEREDUSB/train_processed.data'
     # new_filename_dev = '/Volumes/JEREDUSB/dev_processed.data'
     # new_filename_test = '/Volumes/JEREDUSB/test_processed.data'
     # preprocess_pico_dataset(filename, new_filename_train, new_filename_dev, new_filename_test, aspect_file)
-    with open(aspect_file, 'w') as aspectfile:
-        aspectfile.write(str(['P','I','O']))
+    # with open(aspect_file, 'w') as aspectfile:
+    #     aspectfile.write(str(['P','I','O']))

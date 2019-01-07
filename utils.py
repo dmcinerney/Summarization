@@ -86,14 +86,17 @@ def produce_summary_files(dataset, batch_size, vectorizer, model, path, beam_siz
         if max_num_batch is not None and (i+1) >= max_num_batch:
             break
 
-def run_rouge():
+def run_rouge(save_to=None):
     call(['java', '-Drouge.prop=rouge/ROUGE-2/rouge.properties', '-jar', 'rouge/ROUGE-2/rouge2-1.2.jar'])
     df = pd.read_csv("rouge/ROUGE-2/results.csv")
     rouge1 = df[df['ROUGE-Type'] == 'ROUGE-1+StopWordRemoval']['Avg_F-Score'].mean()*100
     rouge2 = df[df['ROUGE-Type'] == 'ROUGE-2+StopWordRemoval']['Avg_F-Score'].mean()*100
     rougel = df[df['ROUGE-Type'] == 'ROUGE-L+StopWordRemoval']['Avg_F-Score'].mean()*100
-    print(rouge1, rouge2, rougel)
-    return df
+    rouge_readout = 'ROUGE-1: %f, ROUGE-2: %f, ROUGE-L: %f' % (rouge1, rouge2, rougel)
+    print(rouge_readout)
+    if save_to is not None:
+        with open(save_to, 'w') as file:
+            file.write(rouge_readout+'\n')
 
 def print_batch(batch, aspect_summaries, vectorizer, aspects):
     triplets = get_text_triplets(batch, aspect_summaries, vectorizer, aspects)
