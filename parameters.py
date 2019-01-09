@@ -1,29 +1,26 @@
 import torch
+
+#ASPECT_FILE = 'data/pico_dataset/aspects.txt'
 ASPECT_FILE = None
 WORD2VEC_FILE = 'data/cnn_dataset/word2vec.model'
-# DICTIONARY_FILE = 'data/cnn_dataset/dictionary.model'
 DATA_FILE = 'data/cnn_dataset/train_processed.data'
 VAL_FILE = 'data/cnn_dataset/val_processed.data'
-# ASPECT_FILE = 'data/pico_dataset/aspects.txt'
-# WORD2VEC_FILE = 'data/pico_dataset/word2vec.model'
-# DATA_FILE = 'data/pico_dataset/train_processed.data'
-# VAL_FILE = 'data/pico_dataset/dev_processed.data'
+#WORD2VEC_FILE = 'data/pico_dataset/word2vec.model'
+#DATA_FILE = 'data/pico_dataset/train_processed.data'
+#VAL_FILE = 'data/pico_dataset/dev_processed.data'
 MODE = 'train'
 CONTINUE_FROM_CHECKPOINT = True
 CHECKPOINT_PATH = 'checkpoint'
-MODEL_FILE = 'checkpoint/model.model'
+MODEL_FILE = 'checkpoint6/model.model'
 POINTER_GEN = True
 VISUALIZATION_FILE = 'checkpoint/attn_vis_data.json'
 TRAINING_PLOTS_PATH = 'checkpoint'
 MAX_TRAINING_STEPS = None
 
 # hyperparameters
-EMBEDDING_DIM = 128
-LSTM_HIDDEN = 256
-ATTN_HIDDEN = 256*2
-# EMBEDDING_DIM = 128
-# LSTM_HIDDEN = 64
-# ATTN_HIDDEN = 64
+EMBEDDING_DIM = 64
+LSTM_HIDDEN = 64
+ATTN_HIDDEN = 64
 WITH_COVERAGE = True
 GAMMA = 1 # only matters if with_coverage = True
 LEARNING_RATE = .15

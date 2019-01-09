@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order
 import parameters as p
-from model_helpers import init_lstm_weights, init_linear_weights, init_weights_normal
+from model_helpers import init_lstm_weights
 
 # Description: this file contains the sub neural networks that are used in the summarization models
 # Outline:
@@ -31,9 +31,7 @@ class StateEncoder(nn.Module):
     def __init__(self, num_hidden):
         super(StateEncoder, self).__init__()
         self.linearh = nn.Linear(num_hidden*2, num_hidden)
-        init_linear_weights(self.linearh)
         self.linearc = nn.Linear(num_hidden*2, num_hidden)
-        init_linear_weights(self.linearc)
 #         for param in self.parameters():
 #             param.data.normal_(std=p.WEIGHT_INIT_STD)
         
@@ -73,15 +71,13 @@ class ContextVectorNN(nn.Module):
 # linear, softmax
 # NOTE: paper says two linear lays to reduce parameters!
 class VocabularyDistributionNN(nn.Module):
-    def __init__(self, num_features, num_hidden, num_vocab):
+    def __init__(self, num_features, num_vocab):
         super(VocabularyDistributionNN, self).__init__()
-        self.linear1 = nn.Linear(num_features, num_hidden)
-        self.linear2 = nn.Linear(num_hidden, num_vocab+1)
-        init_linear_weights(self.linear2)
-
+        self.linear1 = nn.Linear(num_features, num_vocab)
+        
     def forward(self, context_vector, summary_current_state):
         inputs = torch.cat((context_vector, summary_current_state), -1)
-        outputs = F.softmax(self.linear2(self.linear1(inputs)), -1)
+        outputs = F.softmax(self.linear1(inputs), -1)
         return outputs
 
 # like the VocabularyDistributionNN, it takes as input the context vector and current state of the summary
