@@ -7,7 +7,7 @@ def train_word2vec_model(data_file, word2vec_file, embedding_dim, aspect_file=No
     data = pd.read_json(data_file, lines=True, compression='gzip')
     document_iterator = SummarizationDataset(data, aspect_file=aspect_file).text_iterator()
     print("training word2vec model")
-    word2vec_model = Word2Vec(document_iterator, size=embedding_dim, window=5, min_count=5, workers=4)
+    word2vec_model = Word2Vec(document_iterator, size=embedding_dim, window=5, min_count=83, workers=4)
     word2vec_model.save(word2vec_file)
 
 DATA_FILE = 'data/data/train_processed.data'

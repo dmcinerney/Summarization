@@ -386,24 +386,22 @@ def plot_checkpoint(checkpoint_path, figure_name=None, show=True, average_over=1
     return plot_learning_curves(training_values, validation_values=validation_values, figure_name=figure_name, show=show, average_over=average_over)
 
 def plot_learning_curves(training_values, validation_values=None, figure_name=None, show=True, average_over=1):
+    fig, ax = plt.subplots(nrows=2, figsize=(10,10))
     train_steps, train_losses, train_errors = training_values
     if validation_values is not None:
         validation_steps, validation_losses, validation_errors = validation_values
-    plt.plot(smooth(train_steps, average_over), smooth(train_losses, average_over))
+    ax[0].plot(smooth(train_steps, average_over), smooth(train_losses, average_over))
     if validation_values is not None:
-        plt.plot(smooth(validation_steps, average_over), smooth(validation_losses, average_over))
+        ax[0].plot(smooth(validation_steps, average_over), smooth(validation_losses, average_over))
+    ax[1].plot(smooth(train_steps, average_over), smooth(train_errors, average_over))
+    if validation_values is not None:
+        ax[1].plot(smooth(validation_steps, average_over), smooth(validation_errors, average_over))
     if figure_name is not None:
-        plt.savefig(figure_name+'_loss.png')
+        plt.savefig(figure_name+'.png')
     if show:
         plt.show()
-    plt.close()
-    plt.plot(smooth(train_steps, average_over), smooth(train_errors, average_over))
-    if validation_values is not None:
-        plt.plot(smooth(validation_steps, average_over), smooth(validation_errors, average_over))
-    if figure_name is not None:
-        plt.savefig(figure_name+'_error.png')
-    if show:
-        plt.show()
+    else:
+        return ax
         
 def smooth(array, average_over):
     if array.shape[0] == 0:

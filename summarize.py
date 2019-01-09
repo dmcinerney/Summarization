@@ -102,7 +102,7 @@ def evaluate(vectorizer):
         beam_size=p.BEAM_SIZE,
         max_num_batch=None
     )
-    run_rouge()
+    run_rouge(save_to=os.path.join(p.CHECKPOINT_PATH, 'rouge_scores.txt') if p.CHECKPOINT_PATH is not None else None)
 
 
 def visualize(vectorizer):

@@ -64,18 +64,22 @@ class Decoder(nn.Module):
     def __init__(self, vectorizer, start_index, end_index, lstm_hidden, attn_hidden=None, with_coverage=False, gamma=1):
         super(Decoder, self).__init__()
         self.vectorizer = vectorizer
-        num_features = len(self.vectorizer.word_vectors[0])
-        num_vocab = len(self.vectorizer.word_vectors)
         self.start_index = start_index
         self.end_index = end_index
-        attn_hidden = num_features//2 if attn_hidden is None else attn_hidden
+        self.lstm_hidden = lstm_hidden
+        self.attn_hidden = num_features//2 if attn_hidden is None else attn_hidden
         self.with_coverage = with_coverage
         self.gamma = gamma
 
-        self.summary_decoder = nn.LSTMCell(num_features, lstm_hidden)
+        self.num_features = len(self.vectorizer.word_vectors[0])
+        self.num_vocab = len(self.vectorizer.word_vectors)
+        self.init_submodules()
+
+    def init_submodules(self):
+        self.summary_decoder = nn.LSTMCell(self.num_features, self.lstm_hidden)
         init_lstm_weights(self.summary_decoder)
-        self.context_nn = ContextVectorNN(lstm_hidden*3+1, attn_hidden)
-        self.vocab_nn = VocabularyDistributionNN(lstm_hidden*3, num_vocab+1)
+        self.context_nn = ContextVectorNN(self.lstm_hidden*3+1, self.attn_hidden)
+        self.vocab_nn = VocabularyDistributionNN(self.lstm_hidden*3, self.num_vocab+1)
 
     def forward(self, text_states, text_length, h, c, summary=None, summary_length=None, beam_size=1):
         if summary is None:
@@ -194,9 +198,11 @@ class Decoder(nn.Module):
 class PointerGenDecoder(Decoder):
     def __init__(self, *args, **kwargs):
         super(PointerGenDecoder, self).__init__(*args, **kwargs)
-        lstm_hidden = args[3]
-        self.probability_layer = ProbabilityNN(lstm_hidden*3)
         self.pointer_info = None
+
+    def init_submodules(self):
+        super(PointerGenDecoder, self).init_submodules()
+        self.probability_layer = ProbabilityNN(self.lstm_hidden*3)
 
     def set_pointer_info(self, pointer_info):
         self.pointer_info = pointer_info
