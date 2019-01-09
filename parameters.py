@@ -2,7 +2,8 @@ import torch
 
 #ASPECT_FILE = 'data/pico_dataset/aspects.txt'
 ASPECT_FILE = None
-WORD2VEC_FILE = 'data/cnn_dataset/word2vec.model'
+WORD2VEC_FILE = 'data/cnn_dataset/word2vec64.model'
+# DICTIONARY_FILE = 'data/cnn_dataset/dictionary.model'
 DATA_FILE = 'data/cnn_dataset/train_processed.data'
 VAL_FILE = 'data/cnn_dataset/val_processed.data'
 #WORD2VEC_FILE = 'data/pico_dataset/word2vec.model'
@@ -18,6 +19,9 @@ TRAINING_PLOTS_PATH = 'checkpoint'
 MAX_TRAINING_STEPS = None
 
 # hyperparameters
+# EMBEDDING_DIM = 128
+# LSTM_HIDDEN = 256
+# ATTN_HIDDEN = 256*2
 EMBEDDING_DIM = 64
 LSTM_HIDDEN = 64
 ATTN_HIDDEN = 64
