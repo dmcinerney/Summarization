@@ -13,17 +13,21 @@ from model_helpers import init_lstm_weights
 # d) ProbabilityNN (only used in pointer-generator model)
 
 # Encodes text through an LSTM
-class TextEncoder(nn.Module):
+class LSTMTextEncoder(nn.Module):
     def __init__(self, num_features, num_hidden):
-        super(TextEncoder, self).__init__()
+        super(LSTMTextEncoder, self).__init__()
         self.lstm = nn.LSTM(num_features, num_hidden, bidirectional=True, batch_first=True)
         init_lstm_weights(self.lstm)
+        self.state_encoder = StateEncoder(num_hidden)
 
     def forward(self, x, length):
         x, invert_indices = pack_padded_sequence_maintain_order(x, length, batch_first=True)
         output, (h, c) = self.lstm(x)
         output, (h, c) = pad_packed_sequence_maintain_order(output, [torch.transpose(h, 0, 1), torch.transpose(c, 0, 1)], invert_indices, batch_first=True)
-        return output, (h, c)
+        return output, torch.cat(self.state_encoder(h, c), 1)
+
+class TransformerTextEncoder(nn.Module):
+    pass
 
 # This class will be used to encode the h and c output of the text
 # in order to be input into the decoder
@@ -34,14 +38,25 @@ class StateEncoder(nn.Module):
         self.linearc = nn.Linear(num_hidden*2, num_hidden)
 #         for param in self.parameters():
 #             param.data.normal_(std=p.WEIGHT_INIT_STD)
-        
+
     def forward(self, h, c):
         h1, h2 = h[:, 0], h[:, 1]
         c1, c2 = c[:, 0], c[:, 1]
         h = F.relu(self.linearh(torch.cat((h1, h2), 1)))
         c = F.relu(self.linearc(torch.cat((c1, c2), 1)))
         return h, c
-        
+
+class LSTMSummaryDecoder(nn.Module):
+    def __init__(self, num_features, num_hidden):
+        super(LSTMSummaryDecoder, self).__init__()
+        self.lstm_cell = nn.LSTMCell(num_features, num_hidden)
+
+    def forward(self, token, previous):
+        half = previous.size(1)//2
+        h, c = previous[:,:half], previous[:,half:]
+        h, c = self.lstm_cell(token, (h, c))
+        return h, torch.cat([h, c], 1)
+
 # linear, activation, linear, softmax, sum where
 # input is:
 #     the hidden states from the TextEncoder, the current state from the SummaryDecoder

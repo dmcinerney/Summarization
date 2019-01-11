@@ -11,8 +11,9 @@ class Attention(nn.Module):
     # Note: batch_sizes and squence_lengths all have to be equal,
     #   vector_lengths can vary between keys and values,
     #   vector_lengths can vary between keys and queries depending on type of attention
-    # mask - needs a mask if the sequence lengths vary through the batch,
-    #   will be a byte tensor of size (batch_size, sequence_length) with ones on all valid positions
+    # mask - needs a mask if, for example, the sequence lengths vary through the batch or
+    #   certain queries do not attend over the whole sequence,
+    #   will be a byte tensor of size (batch_size, num_queries, sequence_length) with ones on all valid positions
     def forward(self, queries, keys, values, mask=None, return_distribution=False):
         scores = self.scores(queries, keys) # batch_size, num_queries, sequence_length
         attention_dist = F.softmax(scores, 2)
@@ -35,7 +36,7 @@ class Attention(nn.Module):
     def scores(self, queries, keys):
         raise NotImplementedError
 
-class TwoLayerMLPAttention(Attention):
+class AdditiveAttention(Attention):
     def __init__(self, input_size, hidden_size):
         super(TwoLayerMLPAttention, self).__init__()
         self.linear1 = nn.Linear(input_size, hidden_size)
@@ -50,9 +51,16 @@ class TwoLayerMLPAttention(Attention):
 class ScaledDotProductAttention(Attention):
     def __init__(self):
         super(ScaledDotProductAttention, self).__init__()
-        self.
 
     def scores(self, queries, keys):
         d = queries.size(2)
         queries_expanded, keys_expanded = self.expand_qs_and_ks(queries, keys)
         return (queries_expanded*keys_expanded).sum(3)/torch.sqrt(d)
+
+class MultiHeadedAttention:
+    def __init__(self, attention_object_generator, num_heads):
+        super(MultiHeadedAttention, self).__init__()
+        self.attention_heads = nn.ModuleList([attention_object_generator() for _ in range(num_heads)])
+
+    def forward(self, *args, **kwargs):
+        return torch.cat([attention_head(*args, **kwargs) for attention_head in self.attention_heads], 2)

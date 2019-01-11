@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from beam_search import beam_search
-from submodules import TextEncoder, StateEncoder, ContextVectorNN, VocabularyDistributionNN, ProbabilityNN
+from submodules import LSTMTextEncoder, LSTMSummaryDecoder, ContextVectorNN, VocabularyDistributionNN, ProbabilityNN
 from model_helpers import GeneratedSummary, GeneratedSummaryHypothesis, PointerInfo, init_lstm_weights, trim_text
 import parameters as p
 import pdb
@@ -13,7 +13,7 @@ import pdb
 # c) Decoder
 
 class Summarizer(nn.Module):
-    def __init__(self, vectorizer, start_index, end_index, lstm_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False):
+    def __init__(self, vectorizer, start_index, end_index, lstm_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False, encoder_base=LSTMTextEncoder, decoder_base=LSTMSummaryDecoder):
         super(Summarizer, self).__init__()
 
         self.vectorizer = vectorizer
@@ -24,30 +24,31 @@ class Summarizer(nn.Module):
         self.with_coverage = with_coverage
         self.gamma = gamma
         self.with_pointer = with_pointer
+        self.encoder_base = encoder_base
+        self.decoder_base = decoder_base
         self.init_submodules()
-        
+
     def init_submodules(self):
         decoder_class = Decoder if not self.with_pointer else PointerGenDecoder
-        self.encoder = Encoder(self.vectorizer, self.lstm_hidden)
-        self.decoder = decoder_class(self.vectorizer, self.start_index, self.end_index, self.lstm_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma)
+        self.encoder = Encoder(self.vectorizer, self.lstm_hidden, encoder_base=self.encoder_base)
+        self.decoder = decoder_class(self.vectorizer, self.start_index, self.end_index, self.lstm_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma, decoder_base=self.decoder_base)
 
     def forward(self, text, text_length, text_oov_indices=None, summary=None, summary_length=None, beam_size=1):
         text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
         if summary is not None:
             summary, summary_length = trim_text(summary, summary_length, p.MAX_SUMMARY_LENGTH)
-        text_states, (h, c) = self.encoder(text, text_length)
+        text_states, state = self.encoder(text, text_length)
         if self.with_pointer:
             self.decoder.set_pointer_info(PointerInfo(text, text_oov_indices))
-        return self.decoder(text_states, text_length, h, c, summary=summary, summary_length=summary_length, beam_size=beam_size)
+        return self.decoder(text_states, text_length, state, summary=summary, summary_length=summary_length, beam_size=beam_size)
 
 class Encoder(nn.Module):
-    def __init__(self, vectorizer, lstm_hidden):
+    def __init__(self, vectorizer, lstm_hidden, encoder_base=LSTMTextEncoder):
         super(Encoder, self).__init__()
         self.vectorizer = vectorizer
         num_features = len(self.vectorizer.word_vectors[0])
 
-        self.text_encoder = TextEncoder(num_features, lstm_hidden)
-        self.state_encoder = StateEncoder(lstm_hidden)
+        self.text_encoder = encoder_base(num_features, lstm_hidden)
 
     def forward(self, text, text_length):
         # get batch with vectors from index batch
@@ -55,13 +56,12 @@ class Encoder(nn.Module):
         text = torch.cat(text, 0)
 
         # run text through lstm encoder
-        text_states, (h, c) = self.text_encoder(text, text_length)
-        h, c = self.state_encoder(h, c)
+        text_states, state = self.text_encoder(text, text_length)
 
-        return text_states, (h, c)
+        return text_states, state
 
 class Decoder(nn.Module):
-    def __init__(self, vectorizer, start_index, end_index, lstm_hidden, attn_hidden=None, with_coverage=False, gamma=1):
+    def __init__(self, vectorizer, start_index, end_index, lstm_hidden, attn_hidden=None, with_coverage=False, gamma=1, decoder_base=LSTMSummaryDecoder):
         super(Decoder, self).__init__()
         self.vectorizer = vectorizer
         self.start_index = start_index
@@ -73,27 +73,28 @@ class Decoder(nn.Module):
 
         self.num_features = len(self.vectorizer.word_vectors[0])
         self.num_vocab = len(self.vectorizer.word_vectors)
+        self.decoder_base = decoder_base
         self.init_submodules()
 
     def init_submodules(self):
-        self.summary_decoder = nn.LSTMCell(self.num_features, self.lstm_hidden)
+        self.summary_decoder = self.decoder_base(self.num_features, self.lstm_hidden)
         init_lstm_weights(self.summary_decoder)
         self.context_nn = ContextVectorNN(self.lstm_hidden*3+1, self.attn_hidden)
         self.vocab_nn = VocabularyDistributionNN(self.lstm_hidden*3, self.num_vocab+1)
 
-    def forward(self, text_states, text_length, h, c, summary=None, summary_length=None, beam_size=1):
+    def forward(self, text_states, text_length, state, summary=None, summary_length=None, beam_size=1):
         if summary is None:
-            return self.decode_generate(text_states, text_length, h, c, beam_size=beam_size)
+            return self.decode_generate(text_states, text_length, state, beam_size=beam_size)
         else:
-            return self.decode_train(text_states, text_length, h, c, summary, summary_length)
+            return self.decode_train(text_states, text_length, state, summary, summary_length)
 
-    def decode_generate(self, text_states, text_length, h, c, beam_size=1):
+    def decode_generate(self, text_states, text_length, state, beam_size=1):
         # initialize
         batch_length = text_states.size(0)
         device = text_states.device
         generated_summary = GeneratedSummary(batch_length, device, self.start_index, self.end_index)
         coverage = torch.zeros((batch_length, text_states.size(1)), device=device)
-        hypothesis = GeneratedSummaryHypothesis(self, generated_summary, text_states, text_length, h, c, coverage)
+        hypothesis = GeneratedSummaryHypothesis(self, generated_summary, text_states, text_length, state, coverage)
 
         summary_hyps = beam_search(hypothesis.next_hypotheses(beam_size), beam_size)
         results = [summary_hyp.generated_summary.return_info() for summary_hyp in summary_hyps]
@@ -107,7 +108,7 @@ class Decoder(nn.Module):
     # implements the forward pass of the decoder for training
     # this uses teacher forcing, but conceivably one could try
     # and should add other algorithms for training
-    def decode_train(self, text_states, text_length, h, c, summary, summary_length):
+    def decode_train(self, text_states, text_length, state, summary, summary_length):
         # initialize
         batch_length = text_states.size(0)
         device = text_states.device
@@ -122,7 +123,7 @@ class Decoder(nn.Module):
             valid_indices = torch.nonzero((summary_length-t-1) > 0)[:,0]
 
             # take a time step
-            vocab_dist, h, c, attention, _ = self.timestep_wrapper(valid_indices, summary_t, text_states, text_length, h, c, coverage)
+            vocab_dist, state, attention, _ = self.timestep_wrapper(valid_indices, summary_t, text_states, text_length, state, coverage)
 
             # get next time step words
             summary_tp1 = summary[:,t+1]
@@ -144,33 +145,35 @@ class Decoder(nn.Module):
 
     # this timestep calls timestep forward and converts the inputs to and from just the valid batch examples
     # of those inputs at that time step
-    def timestep_wrapper(self, valid_indices, summary_t, text_states, text_length, h, c, coverage):
+    def timestep_wrapper(self, valid_indices, summary_t, text_states, text_length, state, coverage):
         # inputs at valid indices at position t
         text_states_t = text_states[valid_indices]
         text_length_t = text_length[valid_indices]
         summary_t = summary_t[valid_indices]
-        h_t, c_t = h[valid_indices], c[valid_indices]
+        state_t = state[valid_indices] if state is not None else None
         coverage_t = coverage[valid_indices]
 
         # do forward pass
-        vocab_dist, h_t, c_t, attention_t, context_vector = self.timestep(summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t)
+        vocab_dist, _, state_t, attention_t, context_vector = self.timestep(summary_t, text_states_t, text_length_t, state_t, coverage_t)
 
         # set new h, c, coverage, and loss
-        h[valid_indices], c[valid_indices] = h_t, c_t
-        attention = torch.zeros_like(coverage, device=h.device)
+        if state is None:
+            state = torch.zeros(valid_indices.size(0), *state_t.shape[1:], device=state_t.device)
+        state[valid_indices] = state_t
+        attention = torch.zeros_like(coverage, device=coverage.device)
         attention[valid_indices] = attention_t
-        return vocab_dist, h, c, attention, context_vector
+        return vocab_dist, state, attention, context_vector
 
     # runs the inputs for a time step through the neural nets to get the vocab distribution for that timestep
     # and other necessary information: inputs to the next hidden state in the decoder, attention, and the context vector
     # (the context vector is only needed in the subclass of this so kinda bad style but whatever)
-    def timestep(self, summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t):
+    def timestep(self, summary_t, text_states_t, text_length_t, state_t, coverage_t):
         summary_vec_t = self.vectorizer.get_text_matrix(summary_t, len(summary_t))[0]
 
-        h_t, c_t = self.summary_decoder(summary_vec_t, (h_t, c_t))
-        context_vector, attention_t = self.context_nn(text_states_t, text_length_t, h_t, coverage_t)
-        vocab_dist = self.vocab_nn(context_vector, h_t)
-        return vocab_dist, h_t, c_t, attention_t, context_vector
+        output, state_t = self.summary_decoder(summary_vec_t, state_t)
+        context_vector, attention_t = self.context_nn(text_states_t, text_length_t, output, coverage_t)
+        vocab_dist = self.vocab_nn(context_vector, output)
+        return vocab_dist, output, state_t, attention_t, context_vector
 
     # calulates the log probability of the summary at a time step given the vocab distribution for that time step
     def calculate_log_prob(self, vocab_dist, summary_tp1):
@@ -213,11 +216,11 @@ class PointerGenDecoder(Decoder):
         self.pointer_info = None
         return return_values
 
-    def timestep_wrapper(self, valid_indices, summary_t, text_states, text_length, h, c, coverage):
+    def timestep_wrapper(self, valid_indices, summary_t, text_states, text_length, state, coverage):
         self.pointer_info.update_valid_indices(valid_indices)
-        return super(PointerGenDecoder, self).timestep_wrapper(valid_indices, summary_t, text_states, text_length, h, c, coverage)
+        return super(PointerGenDecoder, self).timestep_wrapper(valid_indices, summary_t, text_states, text_length, state, coverage)
 
-    def timestep(self, summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t):
+    def timestep(self, summary_t, text_states_t, text_length_t, state_t, coverage_t):
         if self.pointer_info is None:
             raise Exception
 
@@ -229,7 +232,7 @@ class PointerGenDecoder(Decoder):
         max_num_oov = self.pointer_info.max_num_oov
 
         # execute the normal timestep_forward function
-        vocab_dist, h_t, c_t, attention_t, context_vector = super(PointerGenDecoder, self).timestep(summary_t, text_states_t, text_length_t, h_t, c_t, coverage_t)
+        vocab_dist, output, state_t, attention_t, context_vector = super(PointerGenDecoder, self).timestep(summary_t, text_states_t, text_length_t, state_t, coverage_t)
         new_vocab_size = (vocab_dist.size(0),vocab_dist.size(1)+max_num_oov)
 
         # create distrubtion over vocab using attention
@@ -251,7 +254,7 @@ class PointerGenDecoder(Decoder):
         word_probabilities = torch.transpose(attention_indicator.sum(-1), 0, 1)
 
         # get probability of generating vs copying
-        p_gen = self.probability_layer(context_vector, h_t)
+        p_gen = self.probability_layer(context_vector, output)
         self.pointer_info.update_p_gen(p_gen)
 
         # attain mixture of the distributions according to p_gen
@@ -264,7 +267,7 @@ class PointerGenDecoder(Decoder):
         add_at_indices[add_at_indices < 0] += new_vocab_size[1].long()
         final_vocab_dist = (p_gen*vocab_dist_probs).scatter_add(1, add_at_indices, (1-p_gen)*word_probabilities)
 
-        return final_vocab_dist, h_t, c_t, attention_t, context_vector
+        return final_vocab_dist, output, state_t, attention_t, context_vector
 
     # this changes it so that only words that don't appear in the text and the static vocab are mapped to the oov index
     def map_input_indices_(self, indices):

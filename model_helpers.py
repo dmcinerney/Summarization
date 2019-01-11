@@ -165,23 +165,31 @@ class GeneratedSummaryHypothesis(Hypothesis):
         generated_summaries = GeneratedSummary.batch_stitch([hyp.generated_summary for hyp in hypotheses], indices)
 
         # create tensors of all of the tensor attributes that differ
-        h_list = [hyp.h for hyp in hypotheses]
-        c_list = [hyp.c for hyp in hypotheses]
         coverage_list = [hyp.coverage for hyp in hypotheses]
-        h_list, c_list, coverage_list = batch_stitch(
-            [h_list, c_list, coverage_list],
+        (coverage_list,) = batch_stitch(
+            [coverage_list],
             indices,
-            static_flags=[True, True, True]
+            static_flags=[True]
         )
+        if hypotheses[0].state is None:
+            # we can do this bc for this object, if one is None then all will be None
+            state_list = [None for _ in range(indices.size(0))]
+        else:
+            state_list = [hyp.state for hyp in hypotheses]
+            (state_list,) = batch_stitch(
+                [state_list],
+                indices,
+                static_flags=[True]
+            )
 
-        return [cls(model, generated_summaries[i], text_states, text_length, h_list[i], c_list[i], coverage_list[i]) for i in range(h_list.size(0))]
+        return [cls(model, generated_summaries[i], text_states, text_length, state_list[i], coverage_list[i]) for i in range(indices.size(0))]
 
-    def __init__(self, model, generated_summary, text_states, text_length, h, c, coverage):
+    def __init__(self, model, generated_summary, text_states, text_length, state, coverage):
         self.model = model
         self.generated_summary = generated_summary
         self.text_states = text_states
         self.text_length = text_length
-        self.h, self.c = h, c
+        self.state = state
         self.coverage = coverage
 
         self.batch_length = text_states.size(0)
@@ -192,7 +200,7 @@ class GeneratedSummaryHypothesis(Hypothesis):
         summary_t, valid_indices = self.generated_summary.get_summary_t()
 
         # take a time step
-        vocab_dist, self.h, self.c, attention, _ = self.model.timestep_wrapper(valid_indices, summary_t, self.text_states, self.text_length, self.h, self.c, self.coverage)
+        vocab_dist, self.state, attention, _ = self.model.timestep_wrapper(valid_indices, summary_t, self.text_states, self.text_length, self.state, self.coverage)
 
         hypotheses = []
         word_indices = torch.topk(vocab_dist, beam_size, dim=1)[1]
@@ -227,7 +235,7 @@ class GeneratedSummaryHypothesis(Hypothesis):
             generated_summary_temp.update(summary_tp1, loss_t, extras)
 
             # add this generated summary as another hypothesis
-            hyp = GeneratedSummaryHypothesis(self.model, generated_summary_temp, self.text_states, self.text_length, self.h, self.c, self.coverage)
+            hyp = GeneratedSummaryHypothesis(self.model, generated_summary_temp, self.text_states, self.text_length, self.state, self.coverage)
             hypotheses.append(hyp)
 
         return hypotheses

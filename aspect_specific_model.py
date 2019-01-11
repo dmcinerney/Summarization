@@ -1,10 +1,11 @@
 from model import Summarizer, Encoder, Decoder, PointerGenDecoder
+from submodules import LSTMTextEncoder, LSTMSummaryDecoder
 from model_helpers import PointerInfo, trim_text
 import parameters as p
 
 
 class AspectSummarizer(Summarizer):
-    def __init__(self, vectorizer, start_index, end_index, aspects, lstm_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False):
+    def __init__(self, vectorizer, start_index, end_index, aspects, lstm_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False, encoder_base=LSTMTextEncoder, decoder_base=LSTMSummaryDecoder):
         self.aspects = aspects
         super(AspectSummarizer, self).__init__(
             vectorizer,
@@ -14,15 +15,17 @@ class AspectSummarizer(Summarizer):
             attn_hidden=attn_hidden,
             with_coverage=with_coverage,
             gamma=gamma,
-            with_pointer=with_pointer
+            with_pointer=with_pointer,
+            encoder_base=encoder_base,
+            decoder_base=decoder_base
         )
         self.curr_aspect = None
 
     def init_submodules(self):
         decoder_class = Decoder if not self.with_pointer else PointerGenDecoder
         for i,aspect in enumerate(self.aspects):
-            self.__setattr__('encoder%i' % i, Encoder(self.vectorizer, self.lstm_hidden))
-            self.__setattr__('decoder%i' % i, decoder_class(self.vectorizer, self.start_index, self.end_index, self.lstm_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma))
+            self.__setattr__('encoder%i' % i, Encoder(self.vectorizer, self.lstm_hidden, encoder_base=self.encoder_base))
+            self.__setattr__('decoder%i' % i, decoder_class(self.vectorizer, self.start_index, self.end_index, self.lstm_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma, decoder_base=self.decoder_base))
 
     def forward(self, text, text_length, text_oov_indices=None, beam_size=1, **kwargs):
         if len(kwargs) == 0:
@@ -36,13 +39,13 @@ class AspectSummarizer(Summarizer):
         text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
         for i,aspect in enumerate(self.aspects):
             self.curr_aspect = i
-            text_states, (h, c) = self.encoder(text, text_length)
+            text_states, state = self.encoder(text, text_length)
             if self.with_pointer:
                 self.decoder.set_pointer_info(PointerInfo(text, text_oov_indices))
             summary, summary_length = kwargs[aspect], kwargs[aspect+'_length']
             if summary is not None:
                 summary, summary_length = trim_text(summary, summary_length, p.MAX_SUMMARY_LENGTH)
-            return_values = self.decoder(text_states, text_length, h, c, summary=summary, summary_length=summary_length, beam_size=beam_size)
+            return_values = self.decoder(text_states, text_length, state, summary=summary, summary_length=summary_length, beam_size=beam_size)
             if decoding:
                 final_return_values.append(return_values)
             else:
