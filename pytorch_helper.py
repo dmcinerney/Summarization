@@ -10,6 +10,7 @@ import os
 import shutil
 import pickle as pkl
 import pdb
+import time
 
 class ModelManipulator:
     # inputs:
@@ -129,6 +130,7 @@ class TrainingTracker:
 
         self.step_num = 0
         self.last_step_num = -1
+        self.last_time = time.time()
 
         if self.checkpoint_path is not None and self.restart:
             shutil.rmtree(self.checkpoint_path)
@@ -159,7 +161,9 @@ class TrainingTracker:
         if self.step_num % self.verbose_every == 0:
             # needed because error can sometimes be None
             printed_train_error = str(train_error)
-            print('epoch: %i, batch: %i, train_loss: %f, train_error: %s' % (i, j, train_loss, printed_train_error))
+            new_time = time.time()
+            print('epoch: %i, batch: %i, train_loss: %f, train_error: %s (%ds)' % (i, j, train_loss, printed_train_error, new_time-self.last_time))
+            self.last_time = time.time()
         # check for nans in model
         param_sum = sum(p.sum() for p in self.model_manip.model.parameters())
         if param_sum != param_sum:

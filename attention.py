@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+import math
 
 class Attention(nn.Module):
     def __init__(self):
@@ -18,7 +19,7 @@ class Attention(nn.Module):
         scores = self.scores(queries, keys) # batch_size, num_queries, sequence_length
         attention_dist = F.softmax(scores, 2)
         if mask is not None:
-            attention_dist = attention_dist*mask
+            attention_dist = attention_dist*mask.float()
             attention_dist = attention_dist/attention_dist.sum(2, keepdim=True)
         final_vector = (attention_dist.unsqueeze(3)*values.unsqueeze(1)).sum(2) # batch_size, num_queries, vector_length
         if return_distribution:
@@ -38,7 +39,7 @@ class Attention(nn.Module):
 
 class AdditiveAttention(Attention):
     def __init__(self, input_size, hidden_size):
-        super(TwoLayerMLPAttention, self).__init__()
+        super(AdditiveAttention, self).__init__()
         self.linear1 = nn.Linear(input_size, hidden_size)
         self.linear2 = nn.Linear(hidden_size, 1)
 
@@ -55,8 +56,9 @@ class ScaledDotProductAttention(Attention):
     def scores(self, queries, keys):
         d = queries.size(2)
         queries_expanded, keys_expanded = self.expand_qs_and_ks(queries, keys)
-        return (queries_expanded*keys_expanded).sum(3)/torch.sqrt(d)
+        return (queries_expanded*keys_expanded).sum(3)/math.sqrt(d)
 
+# non-optimized multi-headed attention
 class MultiHeadedAttention:
     def __init__(self, attention_object_generator, num_heads):
         super(MultiHeadedAttention, self).__init__()

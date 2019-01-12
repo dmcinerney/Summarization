@@ -11,7 +11,7 @@ import pdb
 import parameters as p
 import pickle as pkl
 from model_helpers import clip_grad_norm
-
+from submodules import TransformerTextEncoder, TransformerSummaryDecoder
 
 def train(vectorizer):
     data = get_data(p.DATA_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
@@ -39,7 +39,9 @@ def train(vectorizer):
             attn_hidden=p.ATTN_HIDDEN,
             with_coverage=p.WITH_COVERAGE,
             gamma=p.GAMMA,
-            with_pointer=p.POINTER_GEN
+            with_pointer=p.POINTER_GEN,
+#             encoder_base=TransformerTextEncoder,
+#             decoder_base=TransformerSummaryDecoder
         )
 
     model = model if not p.USE_CUDA else model.cuda()

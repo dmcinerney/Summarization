@@ -157,8 +157,7 @@ class Decoder(nn.Module):
         vocab_dist, _, state_t, attention_t, context_vector = self.timestep(summary_t, text_states_t, text_length_t, state_t, coverage_t)
 
         # set new h, c, coverage, and loss
-        if state is None:
-            state = torch.zeros(valid_indices.size(0), *state_t.shape[1:], device=state_t.device)
+        state = torch.zeros(text_states.size(0), *state_t.shape[1:], device=state_t.device)
         state[valid_indices] = state_t
         attention = torch.zeros_like(coverage, device=coverage.device)
         attention[valid_indices] = attention_t
