@@ -11,7 +11,7 @@ import pdb
 import parameters as p
 import pickle as pkl
 from model_helpers import clip_grad_norm
-from submodules import TransformerTextEncoder, TransformerSummaryDecoder
+from submodules import TransformerTextEncoder, TransformerSummaryDecoder, LSTMTextEncoder, LSTMSummaryDecoder
 
 def train(vectorizer):
     data = get_data(p.DATA_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
@@ -22,11 +22,18 @@ def train(vectorizer):
         if not TrainingTracker.valid_checkpoint(p.CHECKPOINT_PATH):
             print("Cannot continue from checkpoint because not all of the proper files exist; restarting training.")
             p.CONTINUE_FROM_CHECKPOINT = False
+            print("Saving parameters to file again.")
+            p.save_params(os.path.join(p.CHECKPOINT_PATH, 'param_info.txt'))
         else:
-            print("Loading from the last checkpoint; this expects the same datafile as before.")
+            print("Loading from the last checkpoint.")
+            if p.NEW_EPOCH:
+                print("Starting from a new epoch.")
+            else:
+                print("Continuing from the same place in the epoch; this expects the same datafile.")
 
     if p.CONTINUE_FROM_CHECKPOINT:
         model = TrainingTracker.load_model(p.CHECKPOINT_PATH)
+        model.with_coverage = p.WITH_COVERAGE
     else:
         start_index = vectorizer.word_indices['<start>']
         end_index = vectorizer.word_indices['<end>']
@@ -40,8 +47,8 @@ def train(vectorizer):
             with_coverage=p.WITH_COVERAGE,
             gamma=p.GAMMA,
             with_pointer=p.POINTER_GEN,
-#             encoder_base=TransformerTextEncoder,
-#             decoder_base=TransformerSummaryDecoder
+            encoder_base=TransformerTextEncoder if p.USE_TRANSFORMER else LSTMTextEncoder,
+            decoder_base=TransformerSummaryDecoder if p.USE_TRANSFORMER else LSTMSummaryDecoder,
         )
 
     model = model if not p.USE_CUDA else model.cuda()
@@ -72,6 +79,7 @@ def train(vectorizer):
         checkpoint_every=10,
         checkpoint_path=p.CHECKPOINT_PATH,
         restart=not p.CONTINUE_FROM_CHECKPOINT,
+        new_epoch=p.NEW_EPOCH,
         max_steps=p.MAX_TRAINING_STEPS
     )
     if p.CHECKPOINT_PATH is not None:
@@ -89,7 +97,6 @@ def train(vectorizer):
             show=False,
             average_over=p.AVERAGE_OVER
         )
-    p.save_params(os.path.join(p.CHECKPOINT_PATH, 'param_info.txt'))
 
 
 def evaluate(vectorizer):
@@ -117,6 +124,8 @@ def visualize(vectorizer):
 
 
 if __name__ == '__main__':
+    print("Saving parameters to file.")
+    p.save_params(os.path.join(p.CHECKPOINT_PATH, 'param_info.txt'))
     if not os.path.exists(p.WORD2VEC_FILE):
         train_word2vec_model(p.DATA_FILE, p.WORD2VEC_FILE, p.EMBEDDING_DIM, aspect_file=p.ASPECT_FILE)
     print('retreiving word2vec model from file')

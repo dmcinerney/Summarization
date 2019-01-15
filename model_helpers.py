@@ -179,7 +179,7 @@ class GeneratedSummaryHypothesis(Hypothesis):
             (state_list,) = batch_stitch(
                 [state_list],
                 indices,
-                static_flags=[True]
+                static_flags=[False]
             )
 
         return [cls(model, generated_summaries[i], text_states, text_length, state_list[i], coverage_list[i]) for i in range(indices.size(0))]

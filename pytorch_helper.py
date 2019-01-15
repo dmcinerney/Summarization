@@ -58,8 +58,8 @@ class ModelManipulator:
             error_value = None
         return loss_value, error_value
 
-    def train(self, dataset_train, batch_size, epochs, dataset_val=None, stats_every=1000, verbose_every=100, checkpoint_every=1000, checkpoint_path=None, restart=True, max_steps=None):
-        tt = TrainingTracker(self, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, max_steps)
+    def train(self, dataset_train, batch_size, epochs, dataset_val=None, stats_every=1000, verbose_every=100, checkpoint_every=1000, checkpoint_path=None, restart=True, new_epoch=False, max_steps=None):
+        tt = TrainingTracker(self, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, new_epoch, max_steps)
         i, indices_iterator = tt.initialize()
         try:
             while i < epochs:
@@ -67,13 +67,13 @@ class ModelManipulator:
                 for j,indices in indices_iterator:
                     inputs = dataset_train[indices]
                     train_loss, train_error = self.step(inputs, training=True)
-                    tt.step(i, j, train_loss, train_error, indices.size(0), indices_iterator)
+                    tt.step(i, j, train_loss, train_error, indices.size(0), indices_iterator=indices_iterator)
                 indices_iterator = None
                 i += 1
         except StopEarlyException:
             pass
 
-        return tt.end(i, j+1, indices_iterator)
+        return tt.end(i, j+1, indices_iterator=indices_iterator)
 
     # batch_dim is a tuple that tells you an input key, and the batch dimension for that input
     # error function must never return None for this function to work
@@ -96,7 +96,6 @@ class TrainingTracker:
     @staticmethod
     def valid_checkpoint(checkpoint_path):
         return os.path.exists(os.path.join(checkpoint_path, 'model.model')) and \
-               os.path.exists(os.path.join(checkpoint_path, 'indices_iterator.pkl')) and \
                os.path.exists(os.path.join(checkpoint_path, 'iternum.txt')) and \
                os.path.exists(os.path.join(checkpoint_path, 'train_info.txt')) and \
                os.path.exists(os.path.join(checkpoint_path, 'val_info.txt')) and \
@@ -111,7 +110,7 @@ class TrainingTracker:
         with open(os.path.join(checkpoint_path, 'optimizer_state.pkl'), 'rb') as optimizerfile:
             optimizer.load_state_dict(pkl.load(optimizerfile))
 
-    def __init__(self, model_manip, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, max_steps):
+    def __init__(self, model_manip, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, new_epoch, max_steps):
         self.train_steps = []
         self.train_losses = []
         self.train_errors = []
@@ -126,15 +125,12 @@ class TrainingTracker:
         self.checkpoint_every = checkpoint_every
         self.checkpoint_path = checkpoint_path
         self.restart = restart
+        self.new_epoch = new_epoch
         self.max_steps = max_steps
 
         self.step_num = 0
         self.last_step_num = -1
         self.last_time = time.time()
-
-        if self.checkpoint_path is not None and self.restart:
-            shutil.rmtree(self.checkpoint_path)
-            os.mkdir(self.checkpoint_path)
 
     def initialize(self):
         i, indices_iterator = 0, None
@@ -143,12 +139,16 @@ class TrainingTracker:
             with open(os.path.join(self.checkpoint_path, 'iternum.txt'), 'r') as iternumfile:
                 i, self.step_num = eval(iternumfile.read())
                 self.step_num += 1
-            # get indices iterator
-            with open(os.path.join(self.checkpoint_path, 'indices_iterator.pkl'), 'rb') as iteratorfile:
-                indices_iterator = pkl.load(iteratorfile)
+            if self.new_epoch:
+                i += 1
+                indices_iterator = None
+            else:
+                # get indices iterator
+                with open(os.path.join(self.checkpoint_path, 'indices_iterator.pkl'), 'rb') as iteratorfile:
+                    indices_iterator = pkl.load(iteratorfile)
         return i, indices_iterator
 
-    def step(self, i, j, train_loss, train_error, batch_size, indices_iterator):
+    def step(self, i, j, train_loss, train_error, batch_size, indices_iterator=None):
         self.train_losses.append(train_loss)
         self.train_errors.append(train_error)
         self.train_steps.append(self.step_num)
@@ -170,12 +170,12 @@ class TrainingTracker:
             raise Exception('NaNs detected in model parameters after optimizer step!')
         # save checkpoint
         if self.checkpoint_path is not None and self.step_num % self.checkpoint_every == 0:
-            self.save_checkpoint(i, indices_iterator)
+            self.save_checkpoint(i, indices_iterator=indices_iterator)
         self.step_num += 1
         if self.max_steps is not None and self.step_num >= self.max_steps:
             raise StopEarlyException
 
-    def save_checkpoint(self, i, indices_iterator):
+    def save_checkpoint(self, i, indices_iterator=None):
         for s in np.arange(len(self.train_steps))[np.array(self.train_steps) > self.last_step_num]:
             with open(os.path.join(self.checkpoint_path, 'train_info.txt'), 'a') as train_info:
                 train_info.write(str([self.train_steps[s], self.train_losses[s], self.train_errors[s]])+'\n')
@@ -190,14 +190,15 @@ class TrainingTracker:
         # save epoch
         with open(os.path.join(self.checkpoint_path, 'iternum.txt'), 'w') as iternumfile:
             iternumfile.write(str([i,self.step_num]))
-        # save indices iterator
-        with open(os.path.join(self.checkpoint_path, 'indices_iterator.pkl'), 'wb') as iteratorfile:
-            pkl.dump(indices_iterator, iteratorfile)
+        if indices_iterator is not None:
+            # save indices iterator
+            with open(os.path.join(self.checkpoint_path, 'indices_iterator.pkl'), 'wb') as iteratorfile:
+                pkl.dump(indices_iterator, iteratorfile)
         self.last_step_num = self.step_num
 
-    def end(self, i, j, indices_iterator):
+    def end(self, i, j, indices_iterator=None):
         if self.checkpoint_path is not None and not (self.step_num % self.checkpoint_every == 0):
-            self.save_checkpoint(i, indices_iterator)
+            self.save_checkpoint(i, indices_iterator=indices_iterator)
 
         if self.verbose_every is not None:
             print('%i epochs with %i batches per epoch done' % (i, j))
@@ -221,11 +222,11 @@ class RunningAverage:
     def __init__(self):
         self._weight_sum = 0
         self._average = 0
-    
+
     @property
     def average(self):
         return self._average
-    
+
     def update(self, value, weight=1):
         self._weight_sum += weight
         self._average += weight*(value - self._average)/self._weight_sum
@@ -233,7 +234,7 @@ class RunningAverage:
 class PyroModelManipulator(ModelManipulator):
     def __init__(self, svi):
         self.svi = svi
-        
+
     def step(self, inputs, training=False):
         if training:
             loss = self.svi.step(**inputs)
@@ -245,10 +246,10 @@ class OneAtATimeDataset(Dataset):
     def get_multiple_items(self, index_generator):
         list_of_dicts = [self[i] for i in index_generator]
         return dicts_into_batch(list_of_dicts)
-    
+
     def get_one_item(self, index):
         raise NotImplementedError
-    
+
     def __getitem__(self, index):
         if type(index) is slice:
             return self.get_multiple_items(range(len(self))[index])
@@ -258,7 +259,7 @@ class OneAtATimeDataset(Dataset):
             return self.get_one_item(index)
         else:
             raise Exception
-            
+
 class VariableLength(OneAtATimeDataset):
     def get_multiple_items(self, index_generator):
         lengths = []

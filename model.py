@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 from beam_search import beam_search
 from submodules import LSTMTextEncoder, LSTMSummaryDecoder, ContextVectorNN, VocabularyDistributionNN, ProbabilityNN
-from model_helpers import GeneratedSummary, GeneratedSummaryHypothesis, PointerInfo, init_lstm_weights, trim_text
+from model_helpers import GeneratedSummary, GeneratedSummaryHypothesis, PointerInfo, trim_text
 import parameters as p
 import pdb
 
@@ -78,9 +78,8 @@ class Decoder(nn.Module):
 
     def init_submodules(self):
         self.summary_decoder = self.decoder_base(self.num_features, self.lstm_hidden)
-        init_lstm_weights(self.summary_decoder)
-        self.context_nn = ContextVectorNN(self.lstm_hidden*3+1, self.attn_hidden)
-        self.vocab_nn = VocabularyDistributionNN(self.lstm_hidden*3, self.num_vocab+1)
+        self.context_nn = ContextVectorNN(self.lstm_hidden*4+1, self.attn_hidden)
+        self.vocab_nn = VocabularyDistributionNN(self.lstm_hidden*4, self.lstm_hidden, self.num_vocab+1)
 
     def forward(self, text_states, text_length, state, summary=None, summary_length=None, beam_size=1):
         if summary is None:
@@ -204,7 +203,7 @@ class PointerGenDecoder(Decoder):
 
     def init_submodules(self):
         super(PointerGenDecoder, self).init_submodules()
-        self.probability_layer = ProbabilityNN(self.lstm_hidden*3)
+        self.probability_layer = ProbabilityNN(self.lstm_hidden*4)
 
     def set_pointer_info(self, pointer_info):
         self.pointer_info = pointer_info

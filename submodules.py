@@ -4,7 +4,7 @@ from torch.nn import functional as F
 from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order
 import parameters as p
 from model_helpers import init_lstm_weights
-from transformer import Transformer, TransformerCell, CustomScaledDotProductAttention
+from transformer import positional_encoding, CustomTransformer, CustomTransformerCell
 from attention import Attention, AdditiveAttention
 
 # Description: this file contains the sub neural networks that are used in the summarization models
@@ -46,18 +46,19 @@ class StateEncoder(nn.Module):
         return h, c
 
 class TransformerTextEncoder(nn.Module):
-    def __init__(self, num_features, num_hidden):
+    def __init__(self, num_features, num_hidden, N=6):
         super(TransformerTextEncoder, self).__init__()
         num_heads = p.NUM_TRANSFORMER_HEADS
         num_hidden *= 2
-        if num_hidden % num_heads != 0:
-            raise Exception
-        self.transformer = Transformer(CustomScaledDotProductAttention(num_features, num_hidden, num_heads))
-        self.linear = nn.Linear(num_hidden, num_hidden)
+        self.linear = nn.Linear(num_features, num_hidden)
+        self.transformers = nn.ModuleList([CustomTransformer(num_hidden, num_heads) for _ in range(N)])
 
     def forward(self, x, length):
-        results = F.relu(self.linear(self.transformer(x, length))) # batch_size, sequence_length, vector_length
-        return results, None
+        x = x + positional_encoding(sequence_length=x.size(1), vector_length=x.size(2), device=x.device)
+        x = self.linear(x)
+        for transformer in self.transformers:
+            x, distribution = transformer(x, length)
+        return x, None
 
 class LSTMSummaryDecoder(nn.Module):
     def __init__(self, num_features, num_hidden):
@@ -68,20 +69,28 @@ class LSTMSummaryDecoder(nn.Module):
         half = previous.size(1)//2
         h, c = previous[:,:half], previous[:,half:]
         h, c = self.lstm_cell(token, (h, c))
-        return h, torch.cat([h, c], 1)
+        return torch.cat([h, c], 1), torch.cat([h, c], 1)
 
 class TransformerSummaryDecoder(nn.Module):
-    def __init__(self, num_features, num_hidden):
+    def __init__(self, num_features, num_hidden, N=6):
         super(TransformerSummaryDecoder, self).__init__()
         num_heads = p.NUM_TRANSFORMER_HEADS
-        if num_hidden % num_heads != 0:
-            raise Exception
-        self.transformer_cell = TransformerCell(CustomScaledDotProductAttention(num_features, num_hidden, num_heads))
-        self.linear = nn.Linear(num_hidden, num_hidden)
+        num_hidden *= 2
+        self.linear = nn.Linear(num_features, num_hidden)
+        self.transformer_cells = nn.ModuleList([CustomTransformerCell(num_hidden, num_heads) for _ in range(N)])
 
+    # token - batch_size, vector_length
+    # previous - batch_size, num_layers, sequence_length, vector_length
     def forward(self, token, previous):
-        new_token, next_previous = self.transformer_cell(token, previous)
-        return F.relu(self.linear(new_token)), next_previous
+        length = previous.size(2) if previous is not None else 0
+        # TODO: slightly inefficient
+        token = token + positional_encoding(sequence_length=length+1, vector_length=token.size(1), device=token.device)[:,-1,:]
+        token = self.linear(token)
+        next_previous_list = []
+        for i,transformer_cell in enumerate(self.transformer_cells):
+            token, next_previous, distribution = transformer_cell(token, previous[:,i] if previous is not None else None)
+            next_previous_list.append(next_previous.unsqueeze(1))
+        return token, torch.cat(next_previous_list, 1)
 
 # linear, activation, linear, softmax, sum where
 # input is:
@@ -92,46 +101,48 @@ class TransformerSummaryDecoder(nn.Module):
 class ContextVectorNN(nn.Module):
     def __init__(self, num_inputs, num_hidden):
         super(ContextVectorNN, self).__init__()
-#         self.linear1 = nn.Linear(num_inputs, num_hidden)
-#         self.linear2 = nn.Linear(num_hidden, 1)
-        self.additive_attention = AdditiveAttention(num_inputs, num_hidden)
+        self.linear1 = nn.Linear(num_inputs, num_hidden)
+        self.linear2 = nn.Linear(num_hidden, 1)
+#         self.additive_attention = AdditiveAttention(num_inputs, num_hidden)
 
     def forward(self, text_states, text_length, summary_current_state, coverage):
         coverages = coverage.unsqueeze(2) # batch_size, sequence_length, 1
 
         # OLD ATTENTION
-#         summary_current_states = summary_current_state.unsqueeze(1).expand(*text_states.shape[:2],summary_current_state.size(1))
-#             # batch_size, sequence_length, q_vector_length
-#         inputs = torch.cat((text_states, summary_current_states, coverages), 2)
-#             # batch_size, sequence_length, ts_vector_length+q_vector_length+1
+        summary_current_states = summary_current_state.unsqueeze(1).expand(*text_states.shape[:2],summary_current_state.size(1))
+            # batch_size, sequence_length, q_vector_length
+        inputs = torch.cat((text_states, summary_current_states, coverages), 2)
+            # batch_size, sequence_length, ts_vector_length+q_vector_length+1
 
-#         scores = self.linear2(torch.tanh(self.linear1(inputs))).squeeze(2)
+        scores = self.linear2(torch.tanh(self.linear1(inputs))).squeeze(2)
 
-#         # indicator of elements that are within the length of that instance
-#         indicator = torch.arange(scores.size(1), device=scores.device).view(1,-1) < text_length.view(-1,1)
-#         attention = F.softmax(scores, 1)*indicator.float()
-#         attention = attention/attention.sum(1, keepdim=True)
+        # indicator of elements that are within the length of that instance
+        indicator = torch.arange(scores.size(1), device=scores.device).view(1,-1) < text_length.view(-1,1)
+        attention = F.softmax(scores, 1)*indicator.float()
+        attention = attention/attention.sum(1, keepdim=True)
 
-#         context_vector = (attention.unsqueeze(2)*text_states).sum(1)
+        context_vector = (attention.unsqueeze(2)*text_states).sum(1)
 
         # NEW ATTENTION
-        keys = torch.cat([text_states, coverages], 2) # batch_size, sequence_length, ts_vector_length+1
-        mask = torch.arange(keys.size(1), device=keys.device).unsqueeze(0) < text_length.unsqueeze(1)
-            # batch_size, sequence_length
-        context_vector, attention = self.additive_attention(summary_current_state.unsqueeze(1), keys, text_states, mask=mask.unsqueeze(1), return_distribution=True)
+#         keys = torch.cat([text_states, coverages], 2) # batch_size, sequence_length, ts_vector_length+1
+#         mask = torch.arange(keys.size(1), device=keys.device).unsqueeze(0) < text_length.unsqueeze(1)
+#             # batch_size, sequence_length
+#         context_vector, attention = self.additive_attention(summary_current_state.unsqueeze(1), keys, text_states, mask=mask.unsqueeze(1), return_distribution=True)
+#         context_vector, attention = context_vector[:,0], attention[:,0]
 
-        return context_vector[:,0], attention[:,0]
+        return context_vector, attention
 
 # linear, softmax
 # NOTE: paper says two linear lays to reduce parameters!
 class VocabularyDistributionNN(nn.Module):
-    def __init__(self, num_features, num_vocab):
+    def __init__(self, num_features, num_hidden, num_vocab):
         super(VocabularyDistributionNN, self).__init__()
-        self.linear1 = nn.Linear(num_features, num_vocab)
+        self.linear1 = nn.Linear(num_features, num_hidden)
+        self.linear2 = nn.Linear(num_hidden, num_vocab)
 
     def forward(self, context_vector, summary_current_state):
         inputs = torch.cat((context_vector, summary_current_state), -1)
-        outputs = F.softmax(self.linear1(inputs), -1)
+        outputs = F.softmax(self.linear2(self.linear1(inputs)), -1)
         return outputs
 
 # like the VocabularyDistributionNN, it takes as input the context vector and current state of the summary
