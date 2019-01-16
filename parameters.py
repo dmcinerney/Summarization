@@ -16,7 +16,7 @@ MODEL_FILE = 'checkpoint/model.model'
 POINTER_GEN = True
 VISUALIZATION_FILE = 'checkpoint/attn_vis_data.json'
 TRAINING_PLOTS_PATH = 'checkpoint'
-NEW_EPOCH = False
+NEW_EPOCH = True
 MAX_TRAINING_STEPS = None
 USE_TRANSFORMER = True
 

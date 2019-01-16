@@ -63,7 +63,7 @@ class ModelManipulator:
         i, indices_iterator = tt.initialize()
         try:
             while i < epochs:
-                indices_iterator = IndicesIterator(len(dataset_train), batch_size=batch_size, shuffle=True) if indices_iterator is None else indices_iterator
+                indices_iterator = IndicesIterator(len(dataset_train), batch_size=batch_size, shuffle=True, seed=i) if indices_iterator is None else indices_iterator
                 for j,indices in indices_iterator:
                     inputs = dataset_train[indices]
                     train_loss, train_error = self.step(inputs, training=True)
@@ -298,20 +298,21 @@ def pad_packed_sequence_maintain_order(output, other_args, invert_indices, batch
         return output[invert_indices], new_args
     else:
         return output[:,invert_indices], new_args
-    
+
 def print_loop(i, length, every=1000):
     if (i+1) % every == 0 or i == length-1:
         print("%d/%d" % (i+1, length))
-    
+
 class IndicesIterator:
-    def __init__(self, dataset_length, batch_size, shuffle):
+    def __init__(self, dataset_length, batch_size, shuffle, seed=None):
         self.indices = np.arange(dataset_length)
         if shuffle:
+            np.random.seed(seed=seed)
             np.random.shuffle(self.indices)
         self.indices = torch.tensor(self.indices)
         self.batch_size = batch_size
         self.i = 0
-        
+
     def __iter__(self):
         return self
 
@@ -323,28 +324,28 @@ class IndicesIterator:
             return i_temp, self.indices[offset:offset+self.batch_size]
         else:
             raise StopIteration
-            
+
 class MultiDatasetDataLoader:
     def __init__(self, datasets, **kwargs):
         self.dataloaders = [DataLoader(dataset, **kwargs) for dataset in datasets]
         self.indicies = np.concatenate(
             [np.zeros(len(dataloader))+i for i,dataloader in enumerate(self.dataloaders)]
         )
-    
+
     def __iter__(self):
         self.index_iterator = self.indicies.__iter__()
         self.dataset_iterators = [dataloader.__iter__() for dataloader in self.dataloaders]
         np.random.shuffle(self.indicies)
         return self
-    
+
     def __next__(self):
         i = int(self.index_iterator.__next__())
         return self.dataset_iterators[i].__next__()
-    
+
     @property
     def batch_size(self):
         return self.dataloaders[0].batch_size
-    
+
 def random_subset(dataset, number_of_examples):
     subset, _ = random_split(dataset, [number_of_examples, len(dataset)-number_of_examples])
     return subset
@@ -407,7 +408,7 @@ def plot_learning_curves(training_values, validation_values=None, figure_name=No
         plt.show()
     else:
         return ax
-        
+
 def smooth(array, average_over):
     if array.shape[0] == 0:
         return array
