@@ -13,6 +13,23 @@ import pickle as pkl
 from model_helpers import clip_grad_norm
 from submodules import TransformerTextEncoder, TransformerSummaryDecoder, LSTMTextEncoder, LSTMSummaryDecoder
 
+def new_model(vectorizer, aspects):
+    start_index = vectorizer.word_indices['<start>']
+    end_index = vectorizer.word_indices['<end>']
+    return AspectSummarizer(
+        vectorizer,
+        start_index,
+        end_index,
+        aspects,
+        lstm_hidden=p.LSTM_HIDDEN,
+        attn_hidden=p.ATTN_HIDDEN,
+        with_coverage=p.WITH_COVERAGE,
+        gamma=p.GAMMA,
+        with_pointer=p.POINTER_GEN,
+        encoder_base=TransformerTextEncoder if p.USE_TRANSFORMER else LSTMTextEncoder,
+        decoder_base=TransformerSummaryDecoder if p.USE_TRANSFORMER else LSTMSummaryDecoder,
+    )
+
 def train(vectorizer):
     data = get_data(p.DATA_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
     val = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
@@ -31,21 +48,7 @@ def train(vectorizer):
             else:
                 print("Continuing from the same place in the epoch; this expects the same datafile.")
 
-    start_index = vectorizer.word_indices['<start>']
-    end_index = vectorizer.word_indices['<end>']
-    model = AspectSummarizer(
-        vectorizer,
-        start_index,
-        end_index,
-        data.dataset.aspects,
-        lstm_hidden=p.LSTM_HIDDEN,
-        attn_hidden=p.ATTN_HIDDEN,
-        with_coverage=p.WITH_COVERAGE,
-        gamma=p.GAMMA,
-        with_pointer=p.POINTER_GEN,
-        encoder_base=TransformerTextEncoder if p.USE_TRANSFORMER else LSTMTextEncoder,
-        decoder_base=TransformerSummaryDecoder if p.USE_TRANSFORMER else LSTMSummaryDecoder,
-    )
+    model = new_model(vectorizer, data.dataset.aspects)
     if p.CONTINUE_FROM_CHECKPOINT:
         TrainingTracker.load_model_state_(model, p.CHECKPOINT_PATH)
 
@@ -101,7 +104,9 @@ def train(vectorizer):
 
 def evaluate(vectorizer):
     data = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
-    model = torch.load(p.MODEL_FILE)
+    model = new_model(vectorizer, data.dataset.aspects)
+    with open(p.MODEL_FILE, 'rb') as modelfile:
+        model.load_state_dict(pkl.load(modelfile))
     produce_summary_files(
         data,
         p.DECODING_BATCH_SIZE,
@@ -116,7 +121,9 @@ def evaluate(vectorizer):
 
 def visualize(vectorizer):
     data = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
-    model = torch.load(p.MODEL_FILE)
+    model = new_model(vectorizer, data.dataset.aspects)
+    with open(p.MODEL_FILE, 'rb') as modelfile:
+        model.load_state_dict(pkl.load(modelfile))
     batch = data[:p.DECODING_BATCH_SIZE]
     aspect_results = summarize(batch, model, beam_size=p.BEAM_SIZE)
     print_batch(batch, [r[0] for r in aspect_results], vectorizer, model.aspects)

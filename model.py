@@ -342,7 +342,7 @@ class PointerGenDecoder(Decoder):
             indices[batch_indices[holes[batch_indices, oov_indices.long()].byte()]] = len(self.vectorizer.word_vectors)
 
     def map_generated_indices_(self, indices):
-        indices[indices >= len(self.vectorizer.word_vectors)] -= (len(self.vectorizer.word_vectors)+1+self.pointer_info.max_num_oov)
+        indices[indices >= len(self.vectorizer.word_vectors)] -= (len(self.vectorizer.word_vectors)+1+self.pointer_info.max_num_oov).numpy()
 
     def get_extras(self):
         return (self.pointer_info.current_p_gen,)
