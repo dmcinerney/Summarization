@@ -58,12 +58,12 @@ class ModelManipulator:
             error_value = None
         return loss_value, error_value
 
-    def train(self, dataset_train, batch_size, epochs, dataset_val=None, stats_every=1000, verbose_every=100, checkpoint_every=1000, checkpoint_path=None, restart=True, new_epoch=False, max_steps=None):
-        tt = TrainingTracker(self, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, new_epoch, max_steps)
+    def train(self, dataset_train, batch_size, epochs, dataset_val=None, stats_every=1000, verbose_every=100, checkpoint_every=1000, checkpoint_path=None, restart=True, new_epoch=False, max_steps=None, save_whole_model=False):
+        tt = TrainingTracker(self, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, new_epoch, max_steps, save_whole_model=save_whole_model)
         i, indices_iterator = tt.initialize()
         try:
             while i < epochs:
-                indices_iterator = IndicesIterator(len(dataset_train), batch_size=batch_size, shuffle=True, seed=i) if indices_iterator is None else indices_iterator
+                indices_iterator = IndicesIterator(len(dataset_train), batch_size=batch_size, shuffle=True, seed=i+6) if indices_iterator is None else indices_iterator
                 for j,indices in indices_iterator:
                     inputs = dataset_train[indices]
                     train_loss, train_error = self.step(inputs, training=True)
@@ -95,7 +95,8 @@ class ModelManipulator:
 class TrainingTracker:
     @staticmethod
     def valid_checkpoint(checkpoint_path):
-        return os.path.exists(os.path.join(checkpoint_path, 'model.model')) and \
+        return (os.path.exists(os.path.join(checkpoint_path, 'model.model')) or \
+                os.path.exists(os.path.join(checkpoint_path, 'model_state.pkl'))) and \
                os.path.exists(os.path.join(checkpoint_path, 'iternum.txt')) and \
                os.path.exists(os.path.join(checkpoint_path, 'train_info.txt')) and \
                os.path.exists(os.path.join(checkpoint_path, 'val_info.txt')) and \
@@ -103,14 +104,20 @@ class TrainingTracker:
 
     @staticmethod
     def load_model(checkpoint_path):
+#         return torch.jit.load(os.path.join(checkpoint_path, 'model.model'))
         return torch.load(os.path.join(checkpoint_path, 'model.model'))
+
+    @staticmethod
+    def load_model_state_(model, checkpoint_path):
+        with open(os.path.join(checkpoint_path, 'model_state.pkl'), 'rb') as modelfile:
+            model.load_state_dict(pkl.load(modelfile))
 
     @staticmethod
     def load_optimizer_state(optimizer, checkpoint_path):
         with open(os.path.join(checkpoint_path, 'optimizer_state.pkl'), 'rb') as optimizerfile:
             optimizer.load_state_dict(pkl.load(optimizerfile))
 
-    def __init__(self, model_manip, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, new_epoch, max_steps):
+    def __init__(self, model_manip, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, new_epoch, max_steps, save_whole_model=False):
         self.train_steps = []
         self.train_losses = []
         self.train_errors = []
@@ -127,6 +134,7 @@ class TrainingTracker:
         self.restart = restart
         self.new_epoch = new_epoch
         self.max_steps = max_steps
+        self.save_whole_model = save_whole_model
 
         self.step_num = 0
         self.last_step_num = -1
@@ -183,7 +191,12 @@ class TrainingTracker:
             with open(os.path.join(self.checkpoint_path, 'val_info.txt'), 'a') as val_info:
                 val_info.write(str([self.validation_steps[s], self.validation_losses[s], self.validation_errors[s]])+'\n')
         # save model
-        torch.save(self.model_manip.model, os.path.join(self.checkpoint_path, 'model.model'))
+        if self.save_whole_model:
+            torch.save(self.model_manip.model, os.path.join(self.checkpoint_path, 'model.model'))
+            # torch.jit.save(self.model_manip.model, os.path.join(self.checkpoint_path, 'model.model'))
+        else:
+            with open(os.path.join(self.checkpoint_path, 'model_state.pkl'), 'wb') as modelfile:
+                pkl.dump(self.model_manip.model.state_dict(), modelfile)
         # save optimizer state
         with open(os.path.join(self.checkpoint_path, 'optimizer_state.pkl'), 'wb') as optimizerfile:
             pkl.dump(self.model_manip.optimizer.state_dict(), optimizerfile)

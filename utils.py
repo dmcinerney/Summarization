@@ -119,3 +119,14 @@ def visualize(filename, batch, aspect_summaries, vectorizer, aspects, i, j, poin
     p_gens = [float(f) for f in aspect_summaries[j][5][i]] if pointer_gen else [1. for i in range(len(attentions))]
 
     produce_attention_visualization_file(filename, text[1:-1], " ".join(reference_summary[1:-1]), decoded_summary[1:], attentions, p_gens)
+
+def inspect_model_for_nans(model):
+    for n,p in model.named_parameters():
+        if (p != p).any():
+            if (p != p).all():
+                outstr = "all"
+            else:
+                outstr = "some"
+        else:
+            outstr = "none"
+        print("%s: %s are NaN" % (n, outstr))

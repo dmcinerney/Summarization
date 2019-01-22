@@ -101,34 +101,34 @@ class TransformerSummaryDecoder(nn.Module):
 class ContextVectorNN(nn.Module):
     def __init__(self, num_inputs, num_hidden):
         super(ContextVectorNN, self).__init__()
-        self.linear1 = nn.Linear(num_inputs, num_hidden)
-        self.linear2 = nn.Linear(num_hidden, 1)
-#         self.additive_attention = AdditiveAttention(num_inputs, num_hidden)
+#         self.linear1 = nn.Linear(num_inputs, num_hidden)
+#         self.linear2 = nn.Linear(num_hidden, 1)
+        self.additive_attention = AdditiveAttention(num_inputs, num_hidden)
 
     def forward(self, text_states, text_length, summary_current_state, coverage):
         coverages = coverage.unsqueeze(2) # batch_size, sequence_length, 1
 
-        # OLD ATTENTION
-        summary_current_states = summary_current_state.unsqueeze(1).expand(*text_states.shape[:2],summary_current_state.size(1))
-            # batch_size, sequence_length, q_vector_length
-        inputs = torch.cat((text_states, summary_current_states, coverages), 2)
-            # batch_size, sequence_length, ts_vector_length+q_vector_length+1
+#         # OLD ATTENTION
+#         summary_current_states = summary_current_state.unsqueeze(1).expand(*text_states.shape[:2],summary_current_state.size(1))
+#             # batch_size, sequence_length, q_vector_length
+#         inputs = torch.cat((text_states, summary_current_states, coverages), 2)
+#             # batch_size, sequence_length, ts_vector_length+q_vector_length+1
 
-        scores = self.linear2(torch.tanh(self.linear1(inputs))).squeeze(2)
+#         scores = self.linear2(torch.tanh(self.linear1(inputs))).squeeze(2)
 
-        # indicator of elements that are within the length of that instance
-        indicator = torch.arange(scores.size(1), device=scores.device).view(1,-1) < text_length.view(-1,1)
-        attention = F.softmax(scores, 1)*indicator.float()
-        attention = attention/attention.sum(1, keepdim=True)
+#         # indicator of elements that are within the length of that instance
+#         indicator = torch.arange(scores.size(1), device=scores.device).view(1,-1) < text_length.view(-1,1)
+#         attention = F.softmax(scores, 1)*indicator.float()
+#         attention = attention/attention.sum(1, keepdim=True)
 
-        context_vector = (attention.unsqueeze(2)*text_states).sum(1)
+#         context_vector = (attention.unsqueeze(2)*text_states).sum(1)
 
         # NEW ATTENTION
-#         keys = torch.cat([text_states, coverages], 2) # batch_size, sequence_length, ts_vector_length+1
-#         mask = torch.arange(keys.size(1), device=keys.device).unsqueeze(0) < text_length.unsqueeze(1)
-#             # batch_size, sequence_length
-#         context_vector, attention = self.additive_attention(summary_current_state.unsqueeze(1), keys, text_states, mask=mask.unsqueeze(1), return_distribution=True)
-#         context_vector, attention = context_vector[:,0], attention[:,0]
+        keys = torch.cat([text_states, coverages], 2) # batch_size, sequence_length, ts_vector_length+1
+        mask = torch.arange(keys.size(1), device=keys.device).unsqueeze(0) < text_length.unsqueeze(1)
+            # batch_size, sequence_length
+        queries = summary_current_state
+        context_vector, attention = self.additive_attention(queries, keys, text_states, mask=mask.unsqueeze(1), return_distribution=True)
 
         return context_vector, attention
 

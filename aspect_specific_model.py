@@ -5,7 +5,7 @@ import parameters as p
 
 
 class AspectSummarizer(Summarizer):
-    def __init__(self, vectorizer, start_index, end_index, aspects, lstm_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False, encoder_base=LSTMTextEncoder, decoder_base=LSTMSummaryDecoder):
+    def __init__(self, vectorizer, start_index, end_index, aspects, lstm_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False, encoder_base=LSTMTextEncoder, decoder_base=LSTMSummaryDecoder, decoder_parallel_base=None):
         self.aspects = aspects
         super(AspectSummarizer, self).__init__(
             vectorizer,
@@ -17,7 +17,8 @@ class AspectSummarizer(Summarizer):
             gamma=gamma,
             with_pointer=with_pointer,
             encoder_base=encoder_base,
-            decoder_base=decoder_base
+            decoder_base=decoder_base,
+            decoder_parallel_base=decoder_parallel_base
         )
         self.curr_aspect = None
 
@@ -25,7 +26,7 @@ class AspectSummarizer(Summarizer):
         decoder_class = Decoder if not self.with_pointer else PointerGenDecoder
         for i,aspect in enumerate(self.aspects):
             self.__setattr__('encoder%i' % i, Encoder(self.vectorizer, self.lstm_hidden, encoder_base=self.encoder_base))
-            self.__setattr__('decoder%i' % i, decoder_class(self.vectorizer, self.start_index, self.end_index, self.lstm_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma, decoder_base=self.decoder_base))
+            self.__setattr__('decoder%i' % i, decoder_class(self.vectorizer, self.start_index, self.end_index, self.lstm_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma, decoder_base=self.decoder_base, decoder_parallel_base=self.decoder_parallel_base))
 
     def forward(self, text, text_length, text_oov_indices=None, beam_size=1, **kwargs):
         if len(kwargs) == 0:

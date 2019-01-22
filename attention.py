@@ -26,13 +26,6 @@ class Attention(nn.Module):
             return final_vector, attention_dist
         else:
             return final_vector
-
-    def expand_qs_and_ks(self, queries, keys):
-        batch_size, num_queries, q_vec_length = queries.size()
-        _, sequence_length, k_vec_length = keys.size()
-        queries_expanded = queries.unsqueeze(2).expand(batch_size, num_queries, sequence_length, q_vec_length)
-        keys_expanded = keys.unsqueeze(1).expand(batch_size, num_queries, sequence_length, k_vec_length)
-        return queries_expanded, keys_expanded
     
     def scores(self, queries, keys):
         raise NotImplementedError
@@ -44,8 +37,8 @@ class AdditiveAttention(Attention):
         self.linear2 = nn.Linear(hidden_size, 1)
 
     def scores(self, queries, keys):
-        queries_expanded, keys_expanded = self.expand_qs_and_ks(queries, keys)
-        inputs = torch.cat([queries_expanded, keys_expanded], 3) # batch_size, num_queries, sequence_length, q_vec_length + k_vec_length
+        (b, n_q, q_v), (_, s, k_v) = queries.size(), keys.size()
+        inputs = torch.cat([queries.unsqueeze(2).expand(b, n_q, s, q_v), keys.unsqueeze(1).expand(b, n_q, s, k_v)], 3)
         scores = self.linear2(torch.tanh(self.linear1(inputs))) # batch_size, num_queries, sequence_length, 1
         return scores.squeeze(3)
 
@@ -54,9 +47,9 @@ class ScaledDotProductAttention(Attention):
         super(ScaledDotProductAttention, self).__init__()
 
     def scores(self, queries, keys):
-        d = queries.size(2)
-        queries_expanded, keys_expanded = self.expand_qs_and_ks(queries, keys)
-        return (queries_expanded*keys_expanded).sum(3)/math.sqrt(d)
+        # queries (batch_size, num_queries, q_vec_length)
+        # keys (batch_size, sequence_length, k_vec_length)
+        return torch.bmm(queries, keys.transpose(1,2)) # (batch_size, num_queries, sequence_length)
 
 # non-optimized multi-headed attention
 class MultiHeadedAttention:

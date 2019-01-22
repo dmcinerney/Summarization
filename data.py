@@ -2,21 +2,16 @@ import os
 from pytorch_helper import VariableLength
 import pandas as pd
 import torch
+from torch import nn
 from datasets import SummarizationDataset, PreprocessedSummarizationDataset
+from model_helpers import init_weights_normal
 import pdb
 
 
-class Vectorizer:
-    def __init__(self, word2vec_model):
-        self.word_indices = {}
-        self.word_vectors = torch.zeros((len(word2vec_model.wv.vocab), word2vec_model.vector_size))
-        self.words = []
-        for i,k in enumerate(word2vec_model.wv.vocab):
-            v = word2vec_model.wv[k]
-            self.word_indices[k] = i
-            self.word_vectors[i] = torch.tensor(v)
-            self.words.append(k)
-
+class Vectorizer(nn.Module):
+    def __init__(self):
+        super(Vectorizer, self).__init__()
+    
     def __len__(self):
         return len(self.words)
         
@@ -49,6 +44,32 @@ class Vectorizer:
             word_list.append(word)
         return word_list
 
+    def forward(self, indices, lengths):
+        raise NotImplementedError
+
+    @property
+    def vocab_size(self):
+        raise NotImplementedError
+
+    @property
+    def vector_size(self):
+        raise NotImplementedError
+
+class Word2VecVectorizer(Vectorizer):
+    def __init__(self, word2vec_model):
+        super(Word2VecVectorizer, self).__init__()
+        self.word_indices = {}
+        self.word_vectors = torch.zeros((len(word2vec_model.wv.vocab), word2vec_model.vector_size))
+        self.words = []
+        for i,k in enumerate(word2vec_model.wv.vocab):
+            v = word2vec_model.wv[k]
+            self.word_indices[k] = i
+            self.word_vectors[i] = torch.tensor(v)
+            self.words.append(k)
+
+    def forward(self, text, lengths):
+        return torch.cat([self.get_text_matrix(example[:lengths[i]], text.size(1))[0].unsqueeze(0) for i,example in enumerate(text)], 0)
+
     def get_text_matrix(self, text_indices, max_length):
         if max_length < len(text_indices):
             raise Exception
@@ -57,6 +78,38 @@ class Vectorizer:
             vectors[i,:] = torch.tensor(self.word_vectors[index])\
                            if index >= 0 and index < len(self.word_vectors) else torch.randn(len(self.word_vectors[0]))#torch.zeros(len(self.word_vectors[0]))
         return vectors.float(), torch.tensor(len(text_indices))
+
+    @property
+    def vocab_size(self):
+        return len(self.words)
+
+    @property
+    def vector_size(self):
+        return len(self.word_vectors[0])
+
+class TrainableVectorizer(Vectorizer):
+    def __init__(self, dictionary, vector_size):
+        super(TrainableVectorizer, self).__init__()
+        self.word_indices = dictionary.token2id
+        self.words = {v:k for k,v in self.word_indices.items()}#dictionary.id2token
+        self._vector_size = vector_size
+        self.embedding = nn.Embedding(self.vocab_size+1, vector_size)
+        init_weights_normal(self.embedding.weight)
+
+    def forward(self, indices, lengths):
+        padding = torch.arange(indices.size(1), device=indices.device).expand(*indices.size()) >= lengths.unsqueeze(1)
+        indices_mod = indices[:]
+        indices_mod[padding] = 0.
+        indices_mod[indices_mod < 0] = self.vocab_size
+        return self.embedding(indices_mod.long())
+
+    @property
+    def vocab_size(self):
+        return len(self.words)
+
+    @property
+    def vector_size(self):
+        return self._vector_size
 
 def get_data(data_file, vectorizer, with_oov=False, aspect_file=None):
     print('reading data from '+data_file)
