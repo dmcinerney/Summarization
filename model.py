@@ -66,6 +66,8 @@ class Encoder(nn.Module):
         return text_states, state
 
 class Decoder(ScriptModule):
+    __constants__ = ['with_coverage', 'gamma']
+
     def __init__(self, vectorizer, start_index, end_index, lstm_hidden, attn_hidden=None, with_coverage=False, gamma=1, decoder_base=LSTMSummaryDecoder, decoder_parallel_base=None):
         super(Decoder, self).__init__()
         self.vectorizer = vectorizer
@@ -93,7 +95,7 @@ class Decoder(ScriptModule):
         if summary is None:
             return self.decode_generate(text_states, text_length, state, beam_size=beam_size)
         else:
-            return self.decode_train(text_states, text_length, state, summary, summary_length)
+            return dict(loss=self.decode_train(text_states, text_length, state, summary, summary_length))
 #             return self.decode_train_optimized(text_states, text_length, state, summary, summary_length)
 
     def decode_generate(self, text_states, text_length, state, beam_size=1):
@@ -141,15 +143,15 @@ class Decoder(ScriptModule):
             self.map_input_indices_(summary_tp1_valid)
             log_prob = torch.zeros(batch_length, device=device)
             log_prob[valid_indices] = self.calculate_log_prob(vocab_dist, summary_tp1_valid)
+            covloss = torch.zeros(batch_length, device=device)
             if self.with_coverage:
-                covloss = torch.zeros(batch_length, device=device)
                 covloss[valid_indices] = self.calculate_covloss(coverage[valid_indices], attention[valid_indices])
                 coverage += attention
 
             # update unnormalized loss
-            loss_unnormalized += -log_prob + self.gamma*(covloss if self.with_coverage else 0)
+            loss_unnormalized += -log_prob + self.gamma*covloss
 
-        return dict(loss=(loss_unnormalized/(summary_length.float()-1)))
+        return loss_unnormalized/(summary_length.float()-1)
 
 #     def decode_train_optimized(self, text_states, text_length, state, summary, summary_length):
 #         vocab_dists, attentions, coverages, _ = self.parallelized_pass(text_states, text_length, state, summary[:,:-1])

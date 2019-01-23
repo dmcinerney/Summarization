@@ -22,14 +22,14 @@ class Transformer(nn.Module):
         self.attention_func = attention_func
         self.unidirectional = unidirectional
 
-    def forward(self, x, length, return_distribution=False):
+    def forward(self, x, length):
         arangement = torch.arange(x.size(1), device=x.device)
         mask = arangement.unsqueeze(0) < length.unsqueeze(1) # batch_size, sequence_length
         mask = mask.unsqueeze(1) # batch_size, 1, sequence_length
         if self.unidirectional:
             unimask = arangement.unsqueeze(0) <= arangement.unsqueeze(1) # sequence_length, sequence_length
             mask = mask*unimask.unsqueeze(0) # batch_size, sequence_length, sequence_length
-        return self.attention_func(x, x, x, mask=mask, return_distribution=return_distribution)
+        return self.attention_func(x, x, x, mask)
             # batch_size, sequence_length, vector_length
 
 class TransformerCell(nn.Module):
@@ -39,17 +39,13 @@ class TransformerCell(nn.Module):
 
     # x is of size (batch, vector_length)
     # previous is of size (batch, sequence_length, vector_length)
-    def forward(self, token, previous, return_distribution=False):
+    def forward(self, token, previous):
         queries = token.unsqueeze(1)
         keys = next_previous = torch.cat([previous, token.unsqueeze(1)], 1) if previous is not None else token.unsqueeze(1)
-        if return_distribution:
-            result, distribution = self.attention_func(queries, keys, keys, mask=None, return_distribution=True)
-                # (batch_size, 1, vector_length), (batch_size, 1, sequence_length)
-            return result[:,0], next_previous, distribution[:,0]
-        else:
-            result = self.attention_func(queries, keys, keys, mask=None, return_distribution=False)
-                # batch_size, 1, vector_length
-            return result[:,0], next_previous
+        mask = torch.ones((1,1,1), device=keys.device)
+        result, distribution = self.attention_func(queries, keys, keys, mask)
+            # (batch_size, 1, vector_length), (batch_size, 1, sequence_length)
+        return result[:,0], next_previous, distribution[:,0]
 
 # optimized multi-head Scaled Dot Product Attention with linear layers
 # Note: Instead of splitting linear layers for each head, vector is split after linear layers applied
@@ -64,7 +60,7 @@ class CustomScaledDotProductAttention(nn.Module):
         self.sdpa = ScaledDotProductAttention()
         self.final_layer = nn.Linear(num_hidden, num_hidden)
 
-    def forward(self, queries, keys, values, mask=None, return_distribution=False):
+    def forward(self, queries, keys, values, mask):
         b = queries.size(0)
         nq = queries.size(1)
         queries, keys, values = [
@@ -74,23 +70,18 @@ class CustomScaledDotProductAttention(nn.Module):
             for layer, inputs in zip((self.query_layer, self.key_layer, self.value_layer),
                                      (queries, keys, values))
         ]
-        if mask is not None:
-            mask = mask.view(mask.shape[0], 1, *mask.shape[1:])\
-                       .expand(mask.shape[0], self.num_heads, *mask.shape[1:]).contiguous()\
-                       .view(b*self.num_heads, *mask.shape[1:])
-        results = self.sdpa(queries, keys, values, mask=mask, return_distribution=return_distribution)
-        if return_distribution:
-            results, distribution = results
+        mask = mask.view(mask.shape[0], 1, *mask.shape[1:])\
+                   .expand(mask.shape[0], self.num_heads, *mask.shape[1:]).contiguous()\
+                   .view(b*self.num_heads, *mask.shape[1:])
+        results = self.sdpa(queries, keys, values, mask)
+        results, distribution = results
         results = results.view(b, self.num_heads, nq, -1)\
                          .transpose(1, 2).contiguous()\
                          .view(b, nq, -1)
         results = self.final_layer(results)
-        if return_distribution:
-            distribution = distribution.view(b, self.num_heads, nq, -1)\
-                                       .transpose(1, 2).contiguous()
-            return results, distribution
-        else:
-            return results
+        distribution = distribution.view(b, self.num_heads, nq, -1)\
+                                   .transpose(1, 2).contiguous()
+        return results, distribution
 
 # Takne from http://nlp.seas.harvard.edu/2018/04/03/attention.html
 class LayerNorm(nn.Module):
@@ -118,7 +109,7 @@ class CustomTransformer(nn.Module):
         self.normalize2 = LayerNorm(num_features)
 
     def forward(self, x, length):
-        x2, distribution = self.transformer(x, length, return_distribution=True)
+        x2, distribution = self.transformer(x, length)
         x2 = self.normalize1(x2 + x)
         results = self.linear2(F.relu(self.linear1(x2))) # batch_size, sequence_length, vector_length
         results = self.normalize2(results + x2)
@@ -136,7 +127,7 @@ class CustomTransformerCell(nn.Module):
         self.normalize2 = LayerNorm(num_features)
 
     def forward(self, token, previous):
-        token2, next_previous, distribution = self.transformer_cell(token, previous, return_distribution=True)
+        token2, next_previous, distribution = self.transformer_cell(token, previous)
         token2 = self.normalize1(token2 + token)
         new_token = self.linear2(F.relu(self.linear1(token2)))
         new_token = self.normalize2(new_token + token2)

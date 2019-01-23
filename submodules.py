@@ -6,6 +6,8 @@ import parameters as p
 from model_helpers import init_lstm_weights
 from transformer import positional_encoding, CustomTransformer, CustomTransformerCell
 from attention import Attention, AdditiveAttention
+from torch.jit import ScriptModule, script_method, trace
+import pdb
 
 # Description: this file contains the sub neural networks that are used in the summarization models
 # Outline:
@@ -30,14 +32,15 @@ class LSTMTextEncoder(nn.Module):
 
 # This class will be used to encode the h and c output of the text
 # in order to be input into the decoder
-class StateEncoder(nn.Module):
+class StateEncoder(ScriptModule):
     def __init__(self, num_hidden):
         super(StateEncoder, self).__init__()
-        self.linearh = nn.Linear(num_hidden*2, num_hidden)
-        self.linearc = nn.Linear(num_hidden*2, num_hidden)
+        self.linearh = trace(nn.Linear(num_hidden*2, num_hidden), torch.zeros(1,num_hidden*2))
+        self.linearc = trace(nn.Linear(num_hidden*2, num_hidden), torch.zeros(1,num_hidden*2))
 #         for param in self.parameters():
 #             param.data.normal_(std=p.WEIGHT_INIT_STD)
 
+    @script_method
     def forward(self, h, c):
         h1, h2 = h[:, 0], h[:, 1]
         c1, c2 = c[:, 0], c[:, 1]
@@ -60,16 +63,22 @@ class TransformerTextEncoder(nn.Module):
             x, distribution = transformer(x, length)
         return x, None
 
-class LSTMSummaryDecoder(nn.Module):
+class LSTMSummaryDecoder(ScriptModule):
     def __init__(self, num_features, num_hidden):
         super(LSTMSummaryDecoder, self).__init__()
-        self.lstm_cell = nn.LSTMCell(num_features, num_hidden)
+        self.lstm_cell = trace(
+            nn.LSTMCell(num_features, num_hidden), (
+                torch.zeros(1, num_features),
+                (torch.zeros(1, num_hidden), torch.zeros(1, num_hidden))
+            )
+        )
 
+    @script_method
     def forward(self, token, previous):
         half = previous.size(1)//2
         h, c = previous[:,:half], previous[:,half:]
         h, c = self.lstm_cell(token, (h, c))
-        return torch.cat([h, c], 1), torch.cat([h, c], 1)
+        return torch.cat((h, c), 1), torch.cat((h, c), 1)
 
 class TransformerSummaryDecoder(nn.Module):
     def __init__(self, num_features, num_hidden, N=6):
@@ -98,37 +107,19 @@ class TransformerSummaryDecoder(nn.Module):
 # and outputs are:
 #     context_vector (a weighted sum of the encoder hidden states according to the attention)
 #     attention (a softmax of a vector the length of the number of hidden states)
-class ContextVectorNN(nn.Module):
+class ContextVectorNN(ScriptModule):
     def __init__(self, num_inputs, num_hidden):
         super(ContextVectorNN, self).__init__()
-#         self.linear1 = nn.Linear(num_inputs, num_hidden)
-#         self.linear2 = nn.Linear(num_hidden, 1)
         self.additive_attention = AdditiveAttention(num_inputs, num_hidden)
 
+    @script_method
     def forward(self, text_states, text_length, summary_current_state, coverage):
         coverages = coverage.unsqueeze(2) # batch_size, sequence_length, 1
-
-#         # OLD ATTENTION
-#         summary_current_states = summary_current_state.unsqueeze(1).expand(*text_states.shape[:2],summary_current_state.size(1))
-#             # batch_size, sequence_length, q_vector_length
-#         inputs = torch.cat((text_states, summary_current_states, coverages), 2)
-#             # batch_size, sequence_length, ts_vector_length+q_vector_length+1
-
-#         scores = self.linear2(torch.tanh(self.linear1(inputs))).squeeze(2)
-
-#         # indicator of elements that are within the length of that instance
-#         indicator = torch.arange(scores.size(1), device=scores.device).view(1,-1) < text_length.view(-1,1)
-#         attention = F.softmax(scores, 1)*indicator.float()
-#         attention = attention/attention.sum(1, keepdim=True)
-
-#         context_vector = (attention.unsqueeze(2)*text_states).sum(1)
-
-        # NEW ATTENTION
-        keys = torch.cat([text_states, coverages], 2) # batch_size, sequence_length, ts_vector_length+1
-        mask = torch.arange(keys.size(1), device=keys.device).unsqueeze(0) < text_length.unsqueeze(1)
+        keys = torch.cat((text_states, coverages), 2) # batch_size, sequence_length, ts_vector_length+1
+        mask = torch.arange(keys.size(1), device=keys.device).unsqueeze(0) < text_length.unsqueeze(1).float()
             # batch_size, sequence_length
         queries = summary_current_state
-        context_vector, attention = self.additive_attention(queries, keys, text_states, mask=mask.unsqueeze(1), return_distribution=True)
+        context_vector, attention = self.additive_attention(queries, keys, text_states, mask.unsqueeze(1))
 
         return context_vector, attention
 
