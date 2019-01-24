@@ -48,7 +48,7 @@ def train(vectorizer):
             else:
                 print("Continuing from the same place in the epoch; this expects the same datafile.")
 
-    model = new_model(vectorizer, data.dataset.aspects)
+    model = new_model(vectorizer, data.dataset.aspects).train()
     if p.CONTINUE_FROM_CHECKPOINT:
         TrainingTracker.load_model_state_(model, p.CHECKPOINT_PATH)
 
@@ -104,7 +104,7 @@ def train(vectorizer):
 
 def evaluate(vectorizer):
     data = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
-    model = new_model(vectorizer, data.dataset.aspects)
+    model = new_model(vectorizer, data.dataset.aspects).eval()
     with open(p.MODEL_FILE, 'rb') as modelfile:
         model.load_state_dict(pkl.load(modelfile))
     produce_summary_files(
@@ -121,7 +121,7 @@ def evaluate(vectorizer):
 
 def visualize(vectorizer):
     data = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
-    model = new_model(vectorizer, data.dataset.aspects)
+    model = new_model(vectorizer, data.dataset.aspects).eval()
     with open(p.MODEL_FILE, 'rb') as modelfile:
         model.load_state_dict(pkl.load(modelfile))
     batch = data[:p.DECODING_BATCH_SIZE]

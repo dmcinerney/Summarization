@@ -2,11 +2,12 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import math
+import pdb
 
 class Attention(nn.Module):
     def __init__(self):
         super(Attention, self).__init__()
-    
+
     # keys and values - have size (batch_size, sequence_length, vector_length)
     # queries - have size (batch_size, num_queries, vector_length)
     # Note: batch_sizes and squence_lengths all have to be equal,
@@ -15,18 +16,24 @@ class Attention(nn.Module):
     # mask - needs a mask if, for example, the sequence lengths vary through the batch or
     #   certain queries do not attend over the whole sequence,
     #   will be a byte tensor of size (batch_size, num_queries, sequence_length) with ones on all valid positions
-    def forward(self, queries, keys, values, mask=None, return_distribution=False):
+    def forward(self, queries, keys, values, mask=None, return_distribution=False, dropout=None):
         scores = self.scores(queries, keys) # batch_size, num_queries, sequence_length
-        attention_dist = F.softmax(scores, 2)
+        #attention_dist = F.softmax(scores, 2)
         if mask is not None:
-            attention_dist = attention_dist*mask.float()
-            attention_dist = attention_dist/attention_dist.sum(2, keepdim=True)
+            #attention_dist = attention_dist*mask.float()
+            scores = scores.masked_fill(mask == 0, -float('inf'))
+        attention_dist = F.softmax(scores, 2)
+        if dropout is not None:
+            attention_dist = dropout(attention_dist)
+        #sums = attention_dist.sum(2, keepdim=True)
+        #sums[sums == 0] = 1
+        #attention_dist = attention_dist/sums
         final_vector = (attention_dist.unsqueeze(3)*values.unsqueeze(1)).sum(2) # batch_size, num_queries, vector_length
         if return_distribution:
             return final_vector, attention_dist
         else:
             return final_vector
-    
+
     def scores(self, queries, keys):
         raise NotImplementedError
 

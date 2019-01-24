@@ -254,10 +254,10 @@ class PointerInfo:
         self.valid_indices = None
         self.current_p_gen = None
 
-        # get out of vocabulary holes for mapping later
-        # text_oov_indicator - a batch_size by max_seq_length by max_num_oov matrix where
-        # the (i, j, k) element indicates whether the jth word of the ith example is the kth oov index
         if self.max_num_oov != 0:
+            # get out of vocabulary holes for mapping later
+            # text_oov_indicator - a batch_size by max_seq_length by max_num_oov matrix where
+            # the (i, j, k) element indicates whether the jth word of the ith example is the kth oov index
             text_oov_indicator = text.unsqueeze(2) == -1-torch.arange(self.max_num_oov, device=text.device).int().view(1,1,-1)
             # example_oov_indicator - a batch_size by max_num_oov matrix where
             # the (i, j) element indicates whether the jth oov index is present in the ith example
@@ -273,7 +273,7 @@ class PointerInfo:
         self.current_p_gen = torch.zeros((self.text.size(0),1), device=self.text.device).scatter(0, self.valid_indices.unsqueeze(-1), p_gen)
 
     def get_text(self):
-        return self.text[self.valid_indices] if self.valid_indices is not None else text
+        return self.text[self.valid_indices] if self.valid_indices is not None else self.text
 
     def get_oov_holes(self):
         return self.oov_holes[self.valid_indices] if self.valid_indices is not None else self.oov_holes

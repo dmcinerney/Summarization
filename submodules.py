@@ -46,12 +46,14 @@ class StateEncoder(nn.Module):
         return h, c
 
 class TransformerTextEncoder(nn.Module):
-    def __init__(self, num_features, num_hidden, N=6):
+    def __init__(self, num_features, num_hidden):
         super(TransformerTextEncoder, self).__init__()
         num_heads = p.NUM_TRANSFORMER_HEADS
+        N = p.NUM_TRANSFORMER_LAYERS
+        dropout = p.DROPOUT
         num_hidden *= 2
         self.linear = nn.Linear(num_features, num_hidden)
-        self.transformers = nn.ModuleList([CustomTransformer(num_hidden, num_heads) for _ in range(N)])
+        self.transformers = nn.ModuleList([CustomTransformer(num_hidden, num_heads, dropout=dropout) for _ in range(N)])
 
     def forward(self, x, length):
         x = x + positional_encoding(sequence_length=x.size(1), vector_length=x.size(2), device=x.device)
@@ -72,12 +74,14 @@ class LSTMSummaryDecoder(nn.Module):
         return torch.cat([h, c], 1), torch.cat([h, c], 1)
 
 class TransformerSummaryDecoder(nn.Module):
-    def __init__(self, num_features, num_hidden, N=6):
+    def __init__(self, num_features, num_hidden):
         super(TransformerSummaryDecoder, self).__init__()
         num_heads = p.NUM_TRANSFORMER_HEADS
+        N = p.NUM_TRANSFORMER_LAYERS
+        dropout = p.DROPOUT
         num_hidden *= 2
         self.linear = nn.Linear(num_features, num_hidden)
-        self.transformer_cells = nn.ModuleList([CustomTransformerCell(num_hidden, num_heads) for _ in range(N)])
+        self.transformer_cells = nn.ModuleList([CustomTransformerCell(num_hidden, num_heads, dropout=dropout) for _ in range(N)])
 
     # token - batch_size, vector_length
     # previous - batch_size, num_layers, sequence_length, vector_length

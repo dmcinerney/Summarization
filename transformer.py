@@ -3,6 +3,7 @@ from torch import nn
 import math
 from attention import ScaledDotProductAttention
 import torch.nn.functional as F
+import pdb
 
 # taken from http://nlp.seas.harvard.edu/2018/04/03/attention.html
 def positional_encoding(sequence_length, vector_length, device):
@@ -55,7 +56,7 @@ class TransformerCell(nn.Module):
 # Note: Instead of splitting linear layers for each head, vector is split after linear layers applied
 # Note: Different heads are treated as different batches when going through the SDPA
 class CustomScaledDotProductAttention(nn.Module):
-    def __init__(self, num_features, num_hidden, num_heads):
+    def __init__(self, num_features, num_hidden, num_heads, dropout=None):
         super(CustomScaledDotProductAttention, self).__init__()
         self.num_heads = num_heads
         self.query_layer = nn.Linear(num_features, num_hidden)
@@ -63,6 +64,8 @@ class CustomScaledDotProductAttention(nn.Module):
         self.value_layer = nn.Linear(num_features, num_hidden)
         self.sdpa = ScaledDotProductAttention()
         self.final_layer = nn.Linear(num_hidden, num_hidden)
+        if dropout is not None:
+            self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, queries, keys, values, mask=None, return_distribution=False):
         b = queries.size(0)
@@ -78,7 +81,7 @@ class CustomScaledDotProductAttention(nn.Module):
             mask = mask.view(mask.shape[0], 1, *mask.shape[1:])\
                        .expand(mask.shape[0], self.num_heads, *mask.shape[1:]).contiguous()\
                        .view(b*self.num_heads, *mask.shape[1:])
-        results = self.sdpa(queries, keys, values, mask=mask, return_distribution=return_distribution)
+        results = self.sdpa(queries, keys, values, mask=mask, return_distribution=return_distribution, dropout=self.dropout)
         if return_distribution:
             results, distribution = results
         results = results.view(b, self.num_heads, nq, -1)\
@@ -107,11 +110,11 @@ class LayerNorm(nn.Module):
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
 class CustomTransformer(nn.Module):
-    def __init__(self, num_features, num_heads, unidirectional=False):
+    def __init__(self, num_features, num_heads, unidirectional=False, dropout=None):
         super(CustomTransformer, self).__init__()
         if num_features % num_heads != 0:
             raise Exception
-        self.transformer = Transformer(CustomScaledDotProductAttention(num_features, num_features, num_heads), unidirectional=unidirectional)
+        self.transformer = Transformer(CustomScaledDotProductAttention(num_features, num_features, num_heads, dropout=dropout), unidirectional=unidirectional)
         self.normalize1 = LayerNorm(num_features)
         self.linear1 = nn.Linear(num_features, num_features*4)
         self.linear2 = nn.Linear(num_features*4, num_features)
@@ -125,11 +128,11 @@ class CustomTransformer(nn.Module):
         return results, distribution
 
 class CustomTransformerCell(nn.Module):
-    def __init__(self, num_features, num_heads):
+    def __init__(self, num_features, num_heads, dropout=None):
         super(CustomTransformerCell, self).__init__()
         if num_features % num_heads != 0:
             raise Exception
-        self.transformer_cell = TransformerCell(CustomScaledDotProductAttention(num_features, num_features, num_heads))
+        self.transformer_cell = TransformerCell(CustomScaledDotProductAttention(num_features, num_features, num_heads, dropout=dropout))
         self.normalize1 = LayerNorm(num_features)
         self.linear1 = nn.Linear(num_features, num_features*4)
         self.linear2 = nn.Linear(num_features*4, num_features)
