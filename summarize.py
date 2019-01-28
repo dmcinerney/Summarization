@@ -51,7 +51,6 @@ def train(vectorizer):
     model = new_model(vectorizer, data.dataset.aspects).train()
     if p.CONTINUE_FROM_CHECKPOINT:
         TrainingTracker.load_model_state_(model, p.CHECKPOINT_PATH)
-        pdb.set_trace()
 
     model = model if not p.USE_CUDA else model.cuda()
 
