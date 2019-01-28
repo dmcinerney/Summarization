@@ -96,6 +96,30 @@ class TransformerSummaryDecoder(nn.Module):
             next_previous_list.append(next_previous.unsqueeze(1))
         return token, torch.cat(next_previous_list, 1)
 
+# class TransformerSummaryDecoderParallel(nn.Module):
+#     def __init__(self, transformer_summary_decoder):
+#         super(TransformerSummaryDecoderParallel, self).__init__()
+#         num_features, num_hidden = transformer_summary_decoder.linear.weight.transpose(0,1).size()
+#         num_heads = p.NUM_TRANSFORMER_HEADS
+#         N = p.NUM_TRANSFORMER_LAYERS
+#         dropout = p.DROPOUT
+#         self.linear = transformer_summary_decoder.linear
+#         self.transformers = nn.ModuleList([CustomTransformer(num_hidden, num_heads, dropout=dropout, unidirectional=True) for _ in range(N)])
+#         for i,transformer in enumerate(self.transformers):
+#             transformer.transformer.attention_func = transformer_summary_decoder.transformer_cells[i].transformer_cell.attention_func
+#             transformer.normalize1 = transformer_summary_decoder.transformer_cells[i].normalize1
+#             transformer.linear1 = transformer_summary_decoder.transformer_cells[i].linear1
+#             transformer.linear2 = transformer_summary_decoder.transformer_cells[i].linear2
+#             transformer.normalize2 = transformer_summary_decoder.transformer_cells[i].normalize2
+
+#     def forward(self, x, _):
+#         length = torch.zeros(x.size(0), device=x.device, dtype=torch.long)+x.size(1)
+#         x = x + positional_encoding(sequence_length=x.size(1), vector_length=x.size(2), device=x.device)
+#         x = self.linear(x)
+#         for transformer in self.transformers:
+#             x, distribution = transformer(x, length)
+#         return x, None
+
 # linear, activation, linear, softmax, sum where
 # input is:
 #     the hidden states from the TextEncoder, the current state from the SummaryDecoder

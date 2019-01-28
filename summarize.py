@@ -27,7 +27,7 @@ def new_model(vectorizer, aspects):
         gamma=p.GAMMA,
         with_pointer=p.POINTER_GEN,
         encoder_base=TransformerTextEncoder if p.USE_TRANSFORMER else LSTMTextEncoder,
-        decoder_base=TransformerSummaryDecoder if p.USE_TRANSFORMER else LSTMSummaryDecoder,
+        decoder_base=TransformerSummaryDecoder if p.USE_TRANSFORMER else LSTMSummaryDecoder
     )
 
 def train(vectorizer):
@@ -51,6 +51,7 @@ def train(vectorizer):
     model = new_model(vectorizer, data.dataset.aspects).train()
     if p.CONTINUE_FROM_CHECKPOINT:
         TrainingTracker.load_model_state_(model, p.CHECKPOINT_PATH)
+        pdb.set_trace()
 
     model = model if not p.USE_CUDA else model.cuda()
 

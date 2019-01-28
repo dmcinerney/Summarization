@@ -152,15 +152,17 @@ class Decoder(nn.Module):
 #         outputs, context_vectors, attentions, coverages = self.parallelized_pass(text_states, text_length, state, summary[:,:-1])
 #         targets = summary[:,1:]
 #         b, s_d = targets.size()
-#         log_probs = []
+#         losses = []
 #         for t in range(s_d):
 #             vocab_dist = self.vocab_nn(context_vectors[:,t], outputs[:,t])
 #             target = targets[:,t]
 #             self.map_input_indices_(target)
 #             log_prob = self.calculate_log_prob(vocab_dist, target)
-#             log_probs.append(log_prob.unsqueeze(1))
-#         log_probs = torch.cat(log_probs, 1)
-        
+#             loss = -log_prob + self.gamma*(self.calculate_covloss(coverages[:,t], attentions[:,t]) if self.with_coverage else 0)
+#             losses.append(loss.unsqueeze(1))
+#         losses = torch.cat(losses, 1)
+#         mask = torch.arange(s_d, device=summary_length.device, dtype=torch.long).unsqueeze(0) < (summary_length.unsqueeze(1)-1)
+#         loss_unnormalized = (losses*mask.float()).sum(1)
 #         return dict(loss=(loss_unnormalized/(summary_length.float()-1)))
 
 #     def parallelized_pass(self, text_states, text_length, state, summary):
@@ -269,18 +271,24 @@ class PointerGenDecoder(Decoder):
         self.pointer_info = None
         return return_values
 
-#     def parallelized_pass(self, text_states, text_length, state, summary):
-#         b, s_d = summary.size()
-#         vocab_dists, outputs, attentions, context_vectors, coverages = super(PointerGenDecoder, self).parallelized_pass(text_states, text_length, state, summary)
-#         p_gen = self.probability_layer(context_vectors.view(b*s_d, -1), outputs.view(b*s_d, -1))
-#         text = self.pointer_info.get_text().unsqueeze(1).expand(b, s_d, -1).contiguous().view(b*s_d, -1)
-#         word_indices = self.pointer_info.word_indices
-#         max_num_oov = self.pointer_info.max_num_oov
-#         new_vocab_size = (b*s_d,vocab_dists.size(2)+max_num_oov)
-#         word_probabilities, add_at_indices = self.get_attention_distribution(text, attentions.view(b*s_d, -1), word_indices, new_vocab_size)
-#         vocab_dists_probs = F.pad(vocab_dists.view(b*s_d, -1), (0,max_num_oov))
-#         final_vocab_dists = (p_gen*vocab_dists_probs).scatter_add(1, add_at_indices, (1-p_gen)*word_probabilities).view(b, s_d, -1)
-#         return final_vocab_dists, outputs, attentions, context_vectors, coverages
+#     def decode_train_optimized(self, text_states, text_length, state, summary, summary_length):
+#         outputs, context_vectors, attentions, coverages = self.parallelized_pass(text_states, text_length, state, summary[:,:-1])
+#         targets = summary[:,1:]
+#         b, s_d = targets.size()
+#         losses = []
+#         for t in range(s_d):
+#             vocab_dist = self.vocab_nn(context_vectors[:,t], outputs[:,t])
+#             final_vocab_dist = self.timestep_addon(vocab_dist, outputs[:,t], attentions[:,t], context_vectors[:,t])
+#             target = targets[:,t]
+#             self.map_input_indices_(target)
+#             log_prob = self.calculate_log_prob(final_vocab_dist, target)
+#             loss = -log_prob + self.gamma*(self.calculate_covloss(coverages[:,t], attentions[:,t]) if self.with_coverage else 0)
+#             losses.append(loss.unsqueeze(1))
+#         losses = torch.cat(losses, 1)
+#         mask = torch.arange(s_d, device=summary_length.device, dtype=torch.long).unsqueeze(0) < (summary_length.unsqueeze(1)-1)
+#         loss_unnormalized = (losses*mask.float()).sum(1)
+#         return dict(loss=(loss_unnormalized/(summary_length.float()-1)))
+
 
     def timestep_wrapper(self, valid_indices, summary_t, text_states, text_length, state, coverage):
         self.pointer_info.update_valid_indices(valid_indices)
@@ -293,6 +301,11 @@ class PointerGenDecoder(Decoder):
         # execute the normal timestep_forward function
         vocab_dist, output, state_t, attention_t, context_vector = super(PointerGenDecoder, self).timestep(summary_t, text_states_t, text_length_t, state_t, coverage_t)
 
+        final_vocab_dist = self.timestep_addon(vocab_dist, output, attention_t, context_vector)
+
+        return final_vocab_dist, output, state_t, attention_t, context_vector
+
+    def timestep_addon(self, vocab_dist, output, attention_t, context_vector):
         # get probability of generating vs copying
         p_gen = self.probability_layer(context_vector, output)
         self.pointer_info.update_p_gen(p_gen)
@@ -304,19 +317,6 @@ class PointerGenDecoder(Decoder):
         word_indices = self.pointer_info.word_indices
         max_num_oov = self.pointer_info.max_num_oov
         new_vocab_size = (vocab_dist.size(0),vocab_dist.size(1)+max_num_oov)
-        word_probabilities, add_at_indices = self.get_attention_distribution(text, attention_t, word_indices, new_vocab_size)
-
-        # attain mixture of the distributions according to p_gen
-
-        # pad vocab distribution
-        vocab_dist_probs = F.pad(vocab_dist, (0,max_num_oov))
-
-        # get indices to add at
-        final_vocab_dist = (p_gen*vocab_dist_probs).scatter_add(1, add_at_indices, (1-p_gen)*word_probabilities)
-
-        return final_vocab_dist, output, state_t, attention_t, context_vector
-
-    def get_attention_distribution(self, text, attention_t, word_indices, new_vocab_size):
         # create distrubtion over vocab using attention
         # NOTE: for the same words in the text, the attention probability is summed from those indices
 
@@ -337,7 +337,16 @@ class PointerGenDecoder(Decoder):
 
         add_at_indices = word_indices.expand(text.size(0),word_indices.size(0)).long()
         add_at_indices[add_at_indices < 0] += new_vocab_size[1].long()
-        return word_probabilities, add_at_indices
+
+        # attain mixture of the distributions according to p_gen
+
+        # pad vocab distribution
+        vocab_dist_probs = F.pad(vocab_dist, (0,max_num_oov))
+
+        # get indices to add at
+        final_vocab_dist = (p_gen*vocab_dist_probs).scatter_add(1, add_at_indices, (1-p_gen)*word_probabilities)
+
+        return final_vocab_dist
 
     # this changes it so that only words that don't appear in the text and the static vocab are mapped to the oov index
     # used to get indices for computing loss
@@ -350,7 +359,6 @@ class PointerGenDecoder(Decoder):
             batch_indices, oov_indices = oov_places[:,0], -1-indices[oov_places[:,0]]
             holes = self.pointer_info.get_oov_holes()
             indices[batch_indices[holes[batch_indices, oov_indices.long()].byte()]] = len(self.vectorizer.word_vectors)
-
 
     def map_generated_indices_(self, indices):
         indices[indices >= len(self.vectorizer.word_vectors)] -= (len(self.vectorizer.word_vectors)+1+self.pointer_info.max_num_oov).numpy()

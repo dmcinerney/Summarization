@@ -270,7 +270,7 @@ class PointerInfo:
         self.valid_indices = valid_indices
 
     def update_p_gen(self, p_gen):
-        self.current_p_gen = torch.zeros((self.text.size(0),1), device=self.text.device).scatter(0, self.valid_indices.unsqueeze(-1), p_gen)
+        self.current_p_gen = torch.zeros((self.text.size(0),1), device=self.text.device).scatter(0, self.valid_indices.unsqueeze(-1), p_gen) if self.valid_indices is not None else p_gen
 
     def get_text(self):
         return self.text[self.valid_indices] if self.valid_indices is not None else self.text
