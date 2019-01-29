@@ -11,13 +11,13 @@ VAL_FILE = 'data/cnn_dataset/val_processed.data'
 #VAL_FILE = 'data/pico_dataset/dev_processed.data'
 MODE = 'train'
 CONTINUE_FROM_CHECKPOINT = True
-CHECKPOINT_PATH = 'checkpoint'
-MODEL_FILE = 'checkpoint/model_state.pkl'
+CHECKPOINT_PATH = 'test_checkpoint'
+MODEL_FILE = 'test_checkpoint/model_state.pkl'
 POINTER_GEN = True
-VISUALIZATION_FILE = 'checkpoint/attn_vis_data.json'
-TRAINING_PLOTS_PATH = 'checkpoint'
+VISUALIZATION_FILE = 'test_checkpoint/attn_vis_data.json'
+TRAINING_PLOTS_PATH = 'test_checkpoint'
 NEW_EPOCH = False
-MAX_TRAINING_STEPS = 100000
+MAX_TRAINING_STEPS = 10000
 USE_TRANSFORMER = True
 DETECT_ANOMALY = False
 
@@ -33,7 +33,7 @@ NUM_TRANSFORMER_LAYERS = 2
 DROPOUT = .1
 WITH_COVERAGE = True
 GAMMA = 1 # only matters if with_coverage = True
-LEARNING_RATE = .5
+LEARNING_RATE = .2
 INITIAL_ACCUMULATOR_VALUE = 0.1
 BATCH_SIZE = 16
 DECODING_BATCH_SIZE = 4
