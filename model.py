@@ -19,7 +19,7 @@ class Summarizer(nn.Module):
         self.vectorizer = vectorizer
         self.start_index = start_index
         self.end_index = end_index
-        self.lstm_hidden = len(vectorizer.word_vectors[0])//2 if lstm_hidden is None else lstm_hidden
+        self.lstm_hidden = vectorizer.vector_size//2 if lstm_hidden is None else lstm_hidden
         self.attn_hidden = attn_hidden
         self.with_coverage = with_coverage
         self.gamma = gamma
@@ -34,11 +34,11 @@ class Summarizer(nn.Module):
         self.encoder = Encoder(self.vectorizer, self.lstm_hidden, encoder_base=self.encoder_base)
         self.decoder = decoder_class(self.vectorizer, self.start_index, self.end_index, self.lstm_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma, decoder_base=self.decoder_base, decoder_parallel_base=self.decoder_parallel_base)
 
-    def forward(self, text, text_length, text_oov_indices=None, summary=None, summary_length=None, beam_size=1):
+    def forward(self, text, text_length, text_oov_indices=None, summary=None, summary_length=None, beam_size=1, store=None):
         text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
         if summary is not None:
             summary, summary_length = trim_text(summary, summary_length, p.MAX_SUMMARY_LENGTH)
-        text_states, state = self.encoder(text, text_length)
+        text_states, state = self.encoder(text, text_length, store=store)
         if self.with_pointer:
             self.decoder.set_pointer_info(PointerInfo(text, text_oov_indices))
         return self.decoder(text_states, text_length, state, summary=summary, summary_length=summary_length, beam_size=beam_size)
@@ -47,19 +47,18 @@ class Encoder(nn.Module):
     def __init__(self, vectorizer, lstm_hidden, encoder_base=LSTMTextEncoder):
         super(Encoder, self).__init__()
         self.vectorizer = vectorizer
-        num_features = len(self.vectorizer.word_vectors[0])
+        num_features = self.vectorizer.vector_size
 
         self.text_encoder = encoder_base(num_features, lstm_hidden)
 
-    def forward(self, text, text_length):
+    def forward(self, text, text_length, store=None):
         # get batch with vectors from index batch
 #         text = [self.vectorizer.get_text_matrix(example[:text_length[i]], text.size(1))[0].unsqueeze(0) for i,example in enumerate(text)]
 #         text = torch.cat(text, 0)
         text = self.vectorizer(text, text_length)
 
         # run text through lstm encoder
-        text_states, state = self.text_encoder(text, text_length)
-
+        text_states, state = self.text_encoder(text, text_length, store=store)
         return text_states, state
 
 class Decoder(nn.Module):
@@ -73,8 +72,8 @@ class Decoder(nn.Module):
         self.with_coverage = with_coverage
         self.gamma = gamma
 
-        self.num_features = len(self.vectorizer.word_vectors[0])
-        self.num_vocab = len(self.vectorizer.word_vectors)
+        self.num_features = self.vectorizer.vector_size
+        self.num_vocab = self.vectorizer.vocab_size
         self.decoder_base = decoder_base
         self.decoder_parallel_base = decoder_parallel_base
         self.init_submodules()
@@ -216,13 +215,16 @@ class Decoder(nn.Module):
         state[valid_indices] = state_t
         attention = torch.zeros_like(coverage, device=coverage.device)
         attention[valid_indices] = attention_t
+        vocab_dist = vocab_dist + p.EPSILON
+        vocab_dist = vocab_dist/vocab_dist.sum(1, keepdim=True)
         return vocab_dist, state, attention, context_vector
 
     # runs the inputs for a time step through the neural nets to get the vocab distribution for that timestep
     # and other necessary information: inputs to the next hidden state in the decoder, attention, and the context vector
     # (the context vector is only needed in the subclass of this so kinda bad style but whatever)
     def timestep(self, summary_t, text_states_t, text_length_t, state_t, coverage_t):
-        summary_vec_t = self.vectorizer.get_text_matrix(summary_t, len(summary_t))[0]
+        # summary_vec_t = self.vectorizer.get_text_matrix(summary_t, len(summary_t))[0]
+        summary_vec_t = self.vectorizer(summary_t.view(1,-1), torch.tensor([len(summary_t)]))[0]
 
         output, state_t = self.summary_decoder(summary_vec_t, state_t)
         context_vector, attention_t = self.context_nn(text_states_t, text_length_t, output.unsqueeze(1), coverage_t)
@@ -241,10 +243,10 @@ class Decoder(nn.Module):
     # map oov indices maps the indices of oov words to a specific index corresponding to the position in the vocab distribution
     # that represents an oov word
     def map_input_indices_(self, indices):
-        indices[indices == -1] = len(self.vectorizer.word_vectors)
+        indices[indices == -1] = self.vectorizer.vocab_size
 
     def map_generated_indices_(self, indices):
-        indices[indices == len(self.vectorizer.word_vectors)] = -1
+        indices[indices == self.vectorizer.vocab_size] = -1
 
     # this adds any extra information you may want to add to a summary
     def get_extras(self):
@@ -307,7 +309,10 @@ class PointerGenDecoder(Decoder):
 
     def timestep_addon(self, vocab_dist, output, attention_t, context_vector):
         # get probability of generating vs copying
-        p_gen = self.probability_layer(context_vector, output)
+        if p.P_GEN is None:
+            p_gen = self.probability_layer(context_vector, output)
+        else:
+            p_gen = torch.zeros((context_vector.size(0),1), device=context_vector.device) + p.P_GEN
         self.pointer_info.update_p_gen(p_gen)
 
         # get text
@@ -353,15 +358,15 @@ class PointerGenDecoder(Decoder):
     # Note: DEPENDENT ON VALID INDICES IN POINTER_INFO
     def map_input_indices_(self, indices):
         # set oov not in text to oov index
-        indices[indices < -self.pointer_info.max_num_oov] = len(self.vectorizer.word_vectors)
+        indices[indices < -self.pointer_info.max_num_oov] = self.vectorizer.vocab_size
         oov_places = torch.nonzero(indices < 0)
         if oov_places.dim() > 1:
             batch_indices, oov_indices = oov_places[:,0], -1-indices[oov_places[:,0]]
             holes = self.pointer_info.get_oov_holes()
-            indices[batch_indices[holes[batch_indices, oov_indices.long()].byte()]] = len(self.vectorizer.word_vectors)
+            indices[batch_indices[holes[batch_indices, oov_indices.long()].byte()]] = self.vectorizer.vocab_size
 
     def map_generated_indices_(self, indices):
-        indices[indices >= len(self.vectorizer.word_vectors)] -= (len(self.vectorizer.word_vectors)+1+self.pointer_info.max_num_oov).numpy()
+        indices[indices >= self.vectorizer.vocab_size] -= (self.vectorizer.vocab_size+1+self.pointer_info.max_num_oov).cpu().numpy()
 
     # used to get indices to return after generating summary
     # Note: DEPENDENT ON CURRENT_P_GEN IN POINTER_INFO

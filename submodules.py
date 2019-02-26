@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order
 import parameters as p
-from model_helpers import init_lstm_weights
+from model_helpers import init_lstm_weights, init_linear_weights
 from transformer import positional_encoding, CustomTransformer, CustomTransformerCell
 from attention import Attention, AdditiveAttention
 
@@ -22,7 +22,7 @@ class LSTMTextEncoder(nn.Module):
         init_lstm_weights(self.lstm)
         self.state_encoder = StateEncoder(num_hidden)
 
-    def forward(self, x, length):
+    def forward(self, x, length, store=None):
         x, invert_indices = pack_padded_sequence_maintain_order(x, length, batch_first=True)
         output, (h, c) = self.lstm(x)
         output, (h, c) = pad_packed_sequence_maintain_order(output, [torch.transpose(h, 0, 1), torch.transpose(c, 0, 1)], invert_indices, batch_first=True)
@@ -34,7 +34,9 @@ class StateEncoder(nn.Module):
     def __init__(self, num_hidden):
         super(StateEncoder, self).__init__()
         self.linearh = nn.Linear(num_hidden*2, num_hidden)
+        init_linear_weights(self.linearh)
         self.linearc = nn.Linear(num_hidden*2, num_hidden)
+        init_linear_weights(self.linearc)
 #         for param in self.parameters():
 #             param.data.normal_(std=p.WEIGHT_INIT_STD)
 
@@ -53,19 +55,28 @@ class TransformerTextEncoder(nn.Module):
         dropout = p.DROPOUT
         num_hidden *= 2
         self.linear = nn.Linear(num_features, num_hidden)
+        init_linear_weights(self.linear)
         self.transformers = nn.ModuleList([CustomTransformer(num_hidden, num_heads, dropout=dropout) for _ in range(N)])
+        for t in self.transformers:
+            init_linear_weights(t.transformer.attention_func.value_layer)
+            init_linear_weights(t.transformer.attention_func.final_layer)
 
-    def forward(self, x, length):
+    def forward(self, x, length, store=None):
         x = x + positional_encoding(sequence_length=x.size(1), vector_length=x.size(2), device=x.device)
         x = self.linear(x)
+        distributions = []
         for transformer in self.transformers:
             x, distribution = transformer(x, length)
+            distributions.append(distribution.unsqueeze(1))
+        if store is not None:
+            store['encoder_transformer_attns'] = torch.cat(distributions, 1)
         return x, None
 
 class LSTMSummaryDecoder(nn.Module):
     def __init__(self, num_features, num_hidden):
         super(LSTMSummaryDecoder, self).__init__()
         self.lstm_cell = nn.LSTMCell(num_features, num_hidden)
+        init_lstm_weights(self.lstm_cell)
 
     def forward(self, token, previous):
         half = previous.size(1)//2
@@ -82,6 +93,9 @@ class TransformerSummaryDecoder(nn.Module):
         num_hidden *= 2
         self.linear = nn.Linear(num_features, num_hidden)
         self.transformer_cells = nn.ModuleList([CustomTransformerCell(num_hidden, num_heads, dropout=dropout) for _ in range(N)])
+        for t in self.transformer_cells:
+            init_linear_weights(t.transformer_cell.attention_func.value_layer)
+            init_linear_weights(t.transformer_cell.attention_func.final_layer)
 
     # token - batch_size, vector_length
     # previous - batch_size, num_layers, sequence_length, vector_length
@@ -166,7 +180,9 @@ class VocabularyDistributionNN(nn.Module):
     def __init__(self, num_features, num_hidden, num_vocab):
         super(VocabularyDistributionNN, self).__init__()
         self.linear1 = nn.Linear(num_features, num_hidden)
+        init_linear_weights(self.linear1)
         self.linear2 = nn.Linear(num_hidden, num_vocab)
+        init_linear_weights(self.linear2)
 
     def forward(self, context_vector, summary_current_state):
         inputs = torch.cat((context_vector, summary_current_state), -1)
@@ -180,6 +196,7 @@ class ProbabilityNN(nn.Module):
     def __init__(self, num_features):
         super(ProbabilityNN, self).__init__()
         self.linear1 = nn.Linear(num_features, 1)
+        init_linear_weights(self.linear1)
 
     def forward(self, context_vector, summary_current_state):
         inputs = torch.cat((context_vector, summary_current_state), -1)

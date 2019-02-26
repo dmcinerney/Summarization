@@ -26,12 +26,12 @@ def produce_attention_visualization_file(filename, text, reference_summary, deco
     with open(filename, 'w') as outfile:
         json.dump(data, outfile)
 
-def summarize(batch, model, beam_size=1):
+def summarize(batch, model, beam_size=1, store=None):
     device = list(model.parameters())[0].device
     if model.with_pointer:
-        aspect_results = model(batch['text'].to(device), batch['text_length'].to(device), batch['text_oov_indices'], beam_size=beam_size)
+        aspect_results = model(batch['text'].to(device), batch['text_length'].to(device), batch['text_oov_indices'], beam_size=beam_size, store=store)
     else:
-        aspect_results = model(batch['text'].to(device), batch['text_length'].to(device), beam_size=beam_size)
+        aspect_results = model(batch['text'].to(device), batch['text_length'].to(device), beam_size=beam_size, store=store)
     return aspect_results
 
 def get_text_triplets(batch, aspect_summaries, vectorizer, aspects):
@@ -79,14 +79,30 @@ def produce_batch_summary_files(batch, vectorizer, model, path, beam_size=1, sta
 
 def produce_summary_files(dataset, batch_size, vectorizer, model, path, beam_size=1, max_num_batch=None):
     start_index = 0
-    for i,indices in IndicesIterator(len(dataset), batch_size=batch_size, shuffle=True):
+    for i,indices in IndicesIterator(len(dataset), batch_size=batch_size, shuffle=False):
         batch = dataset[indices]
         start_index = produce_batch_summary_files(batch, vectorizer, model, path, beam_size=beam_size, start_index=start_index)
         print(i)
         if max_num_batch is not None and (i+1) >= max_num_batch:
             break
 
-def run_rouge(save_to=None):
+def run_rouge_1(system_path, reference_path, save_to=None):
+    from pyrouge import Rouge155
+    r = Rouge155()
+    r.system_dir = system_path
+    r.model_dir = reference_path
+    r.system_filename_pattern = 'article(\d+)_system_summary.txt'
+    r.model_filename_pattern = 'article#ID#_reference_summary.txt'
+
+    output = r.convert_and_evaluate()
+    print(output)
+    output_dict = r.output_to_dict(output)
+    if save_to is not None:
+        with open(save_to, 'w') as file:
+            file.write(output)
+            file.write(str(output_dict))
+
+def run_rouge_2(save_to=None):
     call(['java', '-Drouge.prop=rouge/ROUGE-2/rouge.properties', '-jar', 'rouge/ROUGE-2/rouge2-1.2.jar'])
     df = pd.read_csv("rouge/ROUGE-2/results.csv")
     rouge1 = df[df['ROUGE-Type'] == 'ROUGE-1+StopWordRemoval']['Avg_F-Score'].mean()*100

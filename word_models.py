@@ -1,6 +1,7 @@
 from datasets import SummarizationDataset
 import pandas as pd
 from gensim.models import Word2Vec
+from gensim.corpora import Dictionary
 
 def train_word2vec_model(data_file, word2vec_file, embedding_dim, aspect_file=None):
     print("reading data file")
@@ -9,6 +10,14 @@ def train_word2vec_model(data_file, word2vec_file, embedding_dim, aspect_file=No
     print("training word2vec model")
     word2vec_model = Word2Vec(document_iterator, size=embedding_dim, window=5, min_count=83, workers=4)
     word2vec_model.save(word2vec_file)
+    
+def save_dictionary(data_file, dictionary_file, aspect_file=None):
+    print("reading data file")
+    data = pd.read_json(data_file, lines=True, compression='gzip')
+    document_iterator = SummarizationDataset(data, aspect_file=aspect_file).text_iterator()
+    print("creating dictionary")
+    dictionary = Dictionary(document_iterator, prune_at=50000)
+    dictionary.save(dictionary_file)
 
 DATA_FILE = 'data/data/train_processed.data'
 WORD2VEC_FILE = 'data/data/word2vec_2.model'

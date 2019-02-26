@@ -144,3 +144,8 @@ class CustomTransformerCell(nn.Module):
         new_token = self.linear2(F.relu(self.linear1(token2)))
         new_token = self.normalize2(new_token + token2)
         return new_token, next_previous, distribution
+
+class CustomTransformerCell2(nn.Module):
+    def __init__(self, num_features, num_heads, dropout=None):
+        self.transformer_cell = CustomTransformerCell(num_features, num_heads, dropout=dropout)
+        pass

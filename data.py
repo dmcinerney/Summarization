@@ -98,7 +98,7 @@ class TrainableVectorizer(Vectorizer):
 
     def forward(self, indices, lengths):
         padding = torch.arange(indices.size(1), device=indices.device).expand(*indices.size()) >= lengths.unsqueeze(1)
-        indices_mod = indices[:]
+        indices_mod = indices.clone()
         indices_mod[padding] = 0.
         indices_mod[indices_mod < 0] = self.vocab_size
         return self.embedding(indices_mod.long())

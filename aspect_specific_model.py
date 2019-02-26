@@ -28,7 +28,7 @@ class AspectSummarizer(Summarizer):
             self.__setattr__('encoder%i' % i, Encoder(self.vectorizer, self.lstm_hidden, encoder_base=self.encoder_base))
             self.__setattr__('decoder%i' % i, decoder_class(self.vectorizer, self.start_index, self.end_index, self.lstm_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma, decoder_base=self.decoder_base, decoder_parallel_base=self.decoder_parallel_base))
 
-    def forward(self, text, text_length, text_oov_indices=None, beam_size=1, **kwargs):
+    def forward(self, text, text_length, text_oov_indices=None, beam_size=1, store=None, **kwargs):
         if len(kwargs) == 0:
             for aspect in self.aspects:
                 kwargs[aspect] = None
@@ -40,7 +40,12 @@ class AspectSummarizer(Summarizer):
         text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
         for i,aspect in enumerate(self.aspects):
             self.curr_aspect = i
-            text_states, state = self.encoder(text, text_length)
+            if store is not None:
+                store[aspect] = {}
+                aspect_store = store[aspect]
+            else:
+                aspect_store = None
+            text_states, state = self.encoder(text, text_length, store=aspect_store)
             if self.with_pointer:
                 self.decoder.set_pointer_info(PointerInfo(text, text_oov_indices))
             summary, summary_length = kwargs[aspect], kwargs[aspect+'_length']

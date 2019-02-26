@@ -149,11 +149,12 @@ class TrainingTracker:
                 self.step_num += 1
             if self.new_epoch:
                 i += 1
-                indices_iterator = None
-            else:
+            elif os.path.exists(os.path.join(self.checkpoint_path, 'indices_iterator.pkl')):
                 # get indices iterator
                 with open(os.path.join(self.checkpoint_path, 'indices_iterator.pkl'), 'rb') as iteratorfile:
                     indices_iterator = pkl.load(iteratorfile)
+        if self.max_steps is not None and self.step_num >= self.max_steps:
+            raise StopEarlyWithoutSavingException
         return i, indices_iterator
 
     def step(self, i, j, train_loss, train_error, batch_size, indices_iterator=None):
@@ -181,6 +182,7 @@ class TrainingTracker:
             self.save_checkpoint(i, indices_iterator=indices_iterator)
         self.step_num += 1
         if self.max_steps is not None and self.step_num >= self.max_steps:
+            # catches if step num reaches the max steps and raises exception before indices_iterator is updated
             raise StopEarlyException
 
     def save_checkpoint(self, i, indices_iterator=None):
@@ -207,9 +209,12 @@ class TrainingTracker:
             # save indices iterator
             with open(os.path.join(self.checkpoint_path, 'indices_iterator.pkl'), 'wb') as iteratorfile:
                 pkl.dump(indices_iterator, iteratorfile)
+        else:
+            os.remove(os.path.join(self.checkpoint_path, 'indices_iterator.pkl'))
         self.last_step_num = self.step_num
 
     def end(self, i, j, indices_iterator=None):
+        self.step_num -= 1
         if self.checkpoint_path is not None and not (self.step_num % self.checkpoint_every == 0):
             self.save_checkpoint(i, indices_iterator=indices_iterator)
 
@@ -229,6 +234,9 @@ class TrainingTracker:
                    np.array(self.train_errors)
 
 class StopEarlyException(Exception):
+    pass
+
+class StopEarlyWithoutSavingException(Exception):
     pass
 
 class RunningAverage:
