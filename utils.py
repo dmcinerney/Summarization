@@ -146,3 +146,17 @@ def inspect_model_for_nans(model):
         else:
             outstr = "none"
         print("%s: %s are NaN" % (n, outstr))
+
+def plot_checkpoint_rouge(checkpoints):
+    scores = []
+    timesteps = []
+    for checkpoint in checkpoints:
+        with open(os.path.join(checkpoint, 'rouge_scores.txt'), 'r') as f:
+            for line in f:
+                pass
+        rouge_dict = eval(line)
+        with open(os.path.join(checkpoint, 'iternum.txt'), 'r') as f:
+            _, timestep = eval(f.read())
+        scores.append(rouge_dict)
+        timesteps.append(timestep)
+    return timesteps, scores

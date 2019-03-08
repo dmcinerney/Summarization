@@ -11,10 +11,10 @@ import pdb
 class Vectorizer(nn.Module):
     def __init__(self):
         super(Vectorizer, self).__init__()
-    
+
     def __len__(self):
         return len(self.words)
-        
+
     def get_text_indices(self, text, max_length, oov_indices=None):
         if max_length < len(text):
             raise Exception
@@ -100,7 +100,7 @@ class TrainableVectorizer(Vectorizer):
         padding = torch.arange(indices.size(1), device=indices.device).expand(*indices.size()) >= lengths.unsqueeze(1)
         indices_mod = indices.clone()
         indices_mod[padding] = 0.
-        indices_mod[indices_mod < 0] = self.vocab_size
+        indices_mod[(indices_mod < 0) | (indices_mod >= self.vocab_size)] = self.vocab_size
         return self.embedding(indices_mod.long())
 
     @property

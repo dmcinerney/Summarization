@@ -63,7 +63,7 @@ class ModelManipulator:
         i, indices_iterator = tt.initialize()
         try:
             while i < epochs:
-                indices_iterator = IndicesIterator(len(dataset_train), batch_size=batch_size, shuffle=True, seed=i+6) if indices_iterator is None else indices_iterator
+                indices_iterator = IndicesIterator(len(dataset_train), batch_size=batch_size, shuffle=True, seed=i+7) if indices_iterator is None else indices_iterator
                 for j,indices in indices_iterator:
                     inputs = dataset_train[indices]
                     train_loss, train_error = self.step(inputs, training=True)

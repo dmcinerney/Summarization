@@ -215,8 +215,8 @@ class Decoder(nn.Module):
         state[valid_indices] = state_t
         attention = torch.zeros_like(coverage, device=coverage.device)
         attention[valid_indices] = attention_t
-        vocab_dist = vocab_dist + p.EPSILON
-        vocab_dist = vocab_dist/vocab_dist.sum(1, keepdim=True)
+        # vocab_dist = vocab_dist + p.EPSILON
+        # vocab_dist = vocab_dist/vocab_dist.sum(1, keepdim=True)
         return vocab_dist, state, attention, context_vector
 
     # runs the inputs for a time step through the neural nets to get the vocab distribution for that timestep
@@ -224,7 +224,7 @@ class Decoder(nn.Module):
     # (the context vector is only needed in the subclass of this so kinda bad style but whatever)
     def timestep(self, summary_t, text_states_t, text_length_t, state_t, coverage_t):
         # summary_vec_t = self.vectorizer.get_text_matrix(summary_t, len(summary_t))[0]
-        summary_vec_t = self.vectorizer(summary_t.view(1,-1), torch.tensor([len(summary_t)]))[0]
+        summary_vec_t = self.vectorizer(summary_t.view(1,-1), torch.tensor([len(summary_t)], device=summary_t.device))[0]
 
         output, state_t = self.summary_decoder(summary_vec_t, state_t)
         context_vector, attention_t = self.context_nn(text_states_t, text_length_t, output.unsqueeze(1), coverage_t)
