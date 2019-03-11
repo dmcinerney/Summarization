@@ -68,7 +68,8 @@ def train(vectorizer, data=None, val=None):
         optimizer,
         aspect_summarizer_loss,
         aspect_summarizer_error,
-        grad_mod=clip_grad_norm
+        grad_mod=clip_grad_norm,
+        no_nan_grad=True
     )
     with torch.autograd.set_detect_anomaly(p.DETECT_ANOMALY):
         train_stats, val_stats = model_manip.train(

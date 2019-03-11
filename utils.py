@@ -3,6 +3,7 @@ import os.path
 import spacy, re
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
 import json
 import pandas as pd
 from subprocess import call
@@ -147,7 +148,7 @@ def inspect_model_for_nans(model):
             outstr = "none"
         print("%s: %s are NaN" % (n, outstr))
 
-def plot_checkpoint_rouge(checkpoints):
+def extract_checkpoint_rouge(checkpoints):
     scores = []
     timesteps = []
     for checkpoint in checkpoints:
@@ -160,3 +161,36 @@ def plot_checkpoint_rouge(checkpoints):
         scores.append(rouge_dict)
         timesteps.append(timestep)
     return timesteps, scores
+
+def plot_stacked_bar(data, x_ticks=None, stack_labels=None, y_label=None, title=None, show_nums=None, y_lim=None, file=None, figsize=None):
+    ind = np.arange(len(data[0][0]))    # the x locations for the groups
+    width = 0.40       # the width of the bars: can also be len(x) sequence
+    if figsize is not None:
+        plt.figure(figsize=figsize)
+    ps = [plt.bar(
+        ind,
+        mean,
+        width,
+        bottom=(data[i-1][0] if i > 0 else None),
+        yerr=error
+    ) for i,(mean,error) in enumerate(data)]
+
+    if y_label is not None:
+        plt.ylabel(y_label)
+    if title is not None:
+        plt.title(title)
+    if x_ticks is not None:
+        plt.xticks(ind, x_ticks)
+    if stack_labels is not None:
+        plt.legend(tuple(p[0] for p in ps), stack_labels)
+    
+    for i,bar in enumerate(ps):
+        for j,patch in enumerate(bar):
+            if show_nums is None or show_nums[i,j]:
+            # get_width pulls left or right; get_y pushes up or down
+                plt.text(patch.get_x(), sum(p[j].get_height() for p in ps[:i+1])+.005, \
+                        str(round(sum(mean[j] for mean,_ in data[:i+1]), 4)), fontsize=12)
+    if y_lim is not None:
+        plt.ylim(y_lim)
+    if file is not None:
+        plt.savefig(file)

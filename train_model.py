@@ -5,7 +5,7 @@ import subprocess
 import os
 from pytorch_helper import StopEarlyWithoutSavingException
 
-CHECKPOINTS_FOLDER = 'checkpoints/LSTMCheckpoints4'
+CHECKPOINTS_FOLDER = 'checkpoints/LSTMCheckpoints4_1'
 DEVICE = 'cuda:0'
 USE_TRANSFORMER = False
 sections = [
@@ -19,11 +19,21 @@ sections = [
     dict(max_training_steps=80000,  max_text_length=400, max_summary_length=100, with_coverage=False),
     dict(max_training_steps=90000,  max_text_length=400, max_summary_length=100, with_coverage=False),
     dict(max_training_steps=100000, max_text_length=400, max_summary_length=100, with_coverage=False),
-    dict(max_training_steps=100020, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=100040, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=100060, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=100080, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=100100, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=110000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=120000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=130000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=140000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=150000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=160000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=170000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=180000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=190000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=200000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=200020, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=200040, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=200060, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=200080, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=200100, max_text_length=400, max_summary_length=100, with_coverage=True),
 ]
 
 if __name__ == '__main__':

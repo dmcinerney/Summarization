@@ -27,13 +27,16 @@ class ModelManipulator:
     #         on the parameters before backward is called
     #     -use_cuda is a boolean indicating whether or not
     #         to use the cuda gpu
-    def __init__(self, model, optimizer, loss_function, error_function, grad_mod=None):
+    def __init__(self, model, optimizer, loss_function, error_function, grad_mod=None, no_nan_grad=False):
         self.model = model
         self.optimizer = optimizer
         self.loss_function = loss_function
         self.error_function = error_function
         self.grad_mod = grad_mod
         self.device = list(model.parameters())[0].device
+        if no_nan_grad:
+            for p in self.model.parameters():
+                p.register_hook(nan_to_num_hook)
 
     def inputs_to_device(self, inputs):
         return {k:(v.to(self.device) if isinstance(v, torch.Tensor) else v) for k,v in inputs.items()}
@@ -63,7 +66,7 @@ class ModelManipulator:
         i, indices_iterator = tt.initialize()
         try:
             while i < epochs:
-                indices_iterator = IndicesIterator(len(dataset_train), batch_size=batch_size, shuffle=True, seed=i+7) if indices_iterator is None else indices_iterator
+                indices_iterator = IndicesIterator(len(dataset_train), batch_size=batch_size, shuffle=True, seed=i+8) if indices_iterator is None else indices_iterator
                 for j,indices in indices_iterator:
                     inputs = dataset_train[indices]
                     train_loss, train_error = self.step(inputs, training=True)
@@ -188,10 +191,10 @@ class TrainingTracker:
     def save_checkpoint(self, i, indices_iterator=None):
         for s in np.arange(len(self.train_steps))[np.array(self.train_steps) > self.last_step_num]:
             with open(os.path.join(self.checkpoint_path, 'train_info.txt'), 'a') as train_info:
-                train_info.write(str([self.train_steps[s], self.train_losses[s], self.train_errors[s]])+'\n')
+                train_info.write(str([self.train_steps[s], self.train_losses[s], self.train_errors[s]]).replace('inf','float(\'inf\')')+'\n')
         for s in np.arange(len(self.validation_steps))[np.array(self.validation_steps) > self.last_step_num]:
             with open(os.path.join(self.checkpoint_path, 'val_info.txt'), 'a') as val_info:
-                val_info.write(str([self.validation_steps[s], self.validation_losses[s], self.validation_errors[s]])+'\n')
+                val_info.write(str([self.validation_steps[s], self.validation_losses[s], self.validation_errors[s]]).replace('inf','float(\'inf\')')+'\n')
         # save model
         if self.save_whole_model:
             torch.save(self.model_manip.model, os.path.join(self.checkpoint_path, 'model.model'))
@@ -482,6 +485,14 @@ def batch_stitch(tensor_lists, indices, static_flags=None):
         size[:indices.dim()] = indices.size()
         return_tensors.append(new_tensor.gather(0, indices.view(*size).expand(size[0],*new_tensor.shape[1:])))
     return return_tensors
+
+def nan_to_num_hook(grad):
+    new_grad = grad.clone()
+    if (new_grad != new_grad).any():
+        print("Warning: NaN encountered!")
+        print(grad)
+    new_grad[new_grad != new_grad] = 0
+    return new_grad
 
 if __name__ == '__main__':
     print(ModelManipulator)

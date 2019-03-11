@@ -4,7 +4,7 @@ from data import get_data
 import subprocess
 import os
 
-CHECKPOINTS_FOLDER = 'checkpoints/LSTMCheckpoints4'
+CHECKPOINTS_FOLDER = 'checkpoints/LSTMCheckpoints5'
 DEVICE = 'cuda:1'
 USE_TRANSFORMER = False
 P_GEN = None
@@ -13,7 +13,7 @@ sections = [dict(
     model_file=os.path.join(CHECKPOINTS_FOLDER, 'checkpoint%i/model_state.pkl' % i),
     text_path=os.path.join(CHECKPOINTS_FOLDER, 'checkpoint%i' % i),
     with_coverage=(i > 10)
-) for i in range(15,16)]
+) for i in range(10,11)]
 
 if __name__ == '__main__':
     vectorizer = setup(checkpoint_path=None, device=DEVICE, use_transformer=USE_TRANSFORMER, p_gen=P_GEN)
