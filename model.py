@@ -81,7 +81,8 @@ class Decoder(nn.Module):
     def init_submodules(self):
         self.summary_decoder = self.decoder_base(self.num_features, self.lstm_hidden)
         if self.decoder_parallel_base is not None:
-            self.summary_decoder_parallel = self.decoder_parallel_base(self.summary_decoder)
+#             self.summary_decoder_parallel = self.decoder_parallel_base(self.summary_decoder)
+            raise NotImplementedError("Parallel base optimized mode is still under construction!")
         self.context_nn = ContextVectorNN(self.lstm_hidden*4+1, self.attn_hidden)
         self.vocab_nn = VocabularyDistributionNN(self.lstm_hidden*4, self.lstm_hidden, self.num_vocab+1)
 
@@ -204,14 +205,13 @@ class Decoder(nn.Module):
         text_states_t = text_states[valid_indices]
         text_length_t = text_length[valid_indices]
         summary_t = summary_t[valid_indices]
-        state_t = state[valid_indices] if state is not None else None
+        state_t = state[valid_indices]
         coverage_t = coverage[valid_indices]
 
         # do forward pass
         vocab_dist, _, state_t, attention_t, context_vector = self.timestep(summary_t, text_states_t, text_length_t, state_t, coverage_t)
 
         # set new h, c, coverage, and loss
-        state = torch.zeros(text_states.size(0), *state_t.shape[1:], device=state_t.device)
         state[valid_indices] = state_t
         attention = torch.zeros_like(coverage, device=coverage.device)
         attention[valid_indices] = attention_t

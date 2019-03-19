@@ -6,6 +6,7 @@ import parameters as p
 import pandas as pd
 import pdb
 import pickle as pkl
+from tensorflow.core.example import example_pb2
 
 def trim_and_transform(example_generator, new_filename, transformation, constraint):
     oldcount, newcount = 0, 0
@@ -30,39 +31,52 @@ def newsroom_preprocess(line):
     summary = preprocess_text(line['summary']) if line['summary'] is not None else None
     return dict(text=text, summary=summary)
 
-# TODO: clean this up
+# # TODO: clean this up
+# def cnn_preprocess(example_str):
+#     abstract = []
+#     article = []
+#     in_abstract = False
+#     in_article = False
+#     example_str = example_str.decode('utf-8', 'replace')
+#     example_str = example_str.replace('<s>', ' ')
+#     example_str = example_str.replace('</s>', ' . ')
+#     prev_c = None
+#     for c in example_str.split():
+#         if c == '.' and prev_c == c:
+#             continue
+#         if 'abstract' in c and c != 'abstract':
+#             in_abstract = True
+#             in_article = False
+#             continue
+#         if 'article' in c and c != 'article':
+#             in_abstract = False
+#             in_article = True
+#             continue
+#         c = c.replace('</s>', '.')
+#         if '<s>' in c: continue
+#         if '�' in c: continue
+#         if in_abstract:
+#             abstract.append(c)
+#         if in_article:
+#             article.append(c)
+#         prev_c = c
+#     pdb.set_trace()
+#     return dict(text=article, summary=abstract)
 def cnn_preprocess(example_str):
-    abstract = []
-    article = []
-    in_abstract = False
-    in_article = False
-    example_str = example_str.decode('utf-8', 'replace')
-    example_str = example_str.replace('<s>', ' ')
-    example_str = example_str.replace('</s>', ' . ')
-    prev_c = None
-    for c in example_str.split():
-        if c == '.' and prev_c == c:
-            continue
-        if 'abstract' in c and c != 'abstract':
-            in_abstract = True
-            in_article = False
-            continue
-        if 'article' in c and c != 'article':
-            in_abstract = False
-            in_article = True
-            continue
-        c = c.replace('</s>', '.')
-        if '<s>' in c: continue
-        if '�' in c: continue
-        if in_abstract:
-            abstract.append(c)
-        if in_article:
-            article.append(c)
-        prev_c = c
-    return dict(text=article, summary=abstract)
+    # convert to tensorflow example e
+    e = example_pb2.Example.FromString(example_str)
+    # extract text and summary
+    try:
+        # the article text was saved under the key 'article' in the data files
+        article_text = e.features.feature['article'].bytes_list.value[0].decode().split(' ')
+        # the abstract text was saved under the key 'abstract' in the data files
+        abstract_text = e.features.feature['abstract'].bytes_list.value[0].decode().split(' ')
+    except ValueError:
+        article_text = abstract_text = None
+    return dict(text=article_text, summary=abstract_text)
 
 def cnn_constraint(line):
-    return len(line['text']) > 0 and len(line['summary']) > 0
+    return line['text'] is not None and line['summary'] is not None
 
 def pico_preprocess(line):
     line = dict(text=line.abstract, P=line.population, I=line.intervention, O=line.outcome)
@@ -116,16 +130,16 @@ if __name__ == '__main__':
     # preprocess_newsroom_datafile(filename, new_filename)
 
     # for cnn dataset
-    # filename = 'data/cnn_dataset/val.bin'
-    # new_filename = 'data/cnn_dataset/val_processed.data'
-    # preprocess_cnn_datafile(filename, new_filename)
+    filename = 'data/cnn_dataset/train.bin'
+    new_filename = 'data/cnn_dataset/train_processed2.data'
+    preprocess_cnn_datafile(filename, new_filename)
 
     # for pico dataset
-    aspect_file = '/Volumes/JEREDUSB/aspects.txt'
+#     aspect_file = '/Volumes/JEREDUSB/aspects.txt'
     # filename = '/Volumes/JEREDUSB/pico_cdsr.csv'
     # new_filename_train = '/Volumes/JEREDUSB/train_processed.data'
     # new_filename_dev = '/Volumes/JEREDUSB/dev_processed.data'
     # new_filename_test = '/Volumes/JEREDUSB/test_processed.data'
     # preprocess_pico_dataset(filename, new_filename_train, new_filename_dev, new_filename_test, aspect_file)
-    with open(aspect_file, 'w') as aspectfile:
-        aspectfile.write(str(['P','I','O']))
+#     with open(aspect_file, 'w') as aspectfile:
+#         aspectfile.write(str(['P','I','O']))

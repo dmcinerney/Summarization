@@ -17,9 +17,9 @@ def positional_encoding(sequence_length, vector_length, device):
     pe[:, 1::2] = torch.cos(position * div_term2)
     return pe.unsqueeze(0)
 
-class Transformer(nn.Module):
+class SelfAttention(nn.Module):
     def __init__(self, attention_func, unidirectional=False):
-        super(Transformer, self).__init__()
+        super(SelfAttention, self).__init__()
         self.attention_func = attention_func
         self.unidirectional = unidirectional
 
@@ -33,9 +33,9 @@ class Transformer(nn.Module):
         return self.attention_func(x, x, x, mask=mask, return_distribution=return_distribution)
             # batch_size, sequence_length, vector_length
 
-class TransformerCell(nn.Module):
+class SelfAttentionCell(nn.Module):
     def __init__(self, attention_func):
-        super(TransformerCell, self).__init__()
+        super(SelfAttentionCell, self).__init__()
         self.attention_func = attention_func
 
     # x is of size (batch, vector_length)
@@ -95,7 +95,7 @@ class CustomScaledDotProductAttention(nn.Module):
         else:
             return results
 
-# Takne from http://nlp.seas.harvard.edu/2018/04/03/attention.html
+# taken from http://nlp.seas.harvard.edu/2018/04/03/attention.html
 class LayerNorm(nn.Module):
     "Construct a layernorm module (See citation for details)."
     def __init__(self, features, eps=1e-6):
@@ -109,43 +109,61 @@ class LayerNorm(nn.Module):
         std = x.std(-1, keepdim=True)
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
-class CustomTransformer(nn.Module):
-    def __init__(self, num_features, num_heads, unidirectional=False, dropout=None):
-        super(CustomTransformer, self).__init__()
+class CustomTransformerEnc(nn.Module):
+    def __init__(self, num_features, num_hidden, num_heads, unidirectional=False, dropout=None):
+        super(CustomTransformerEnc, self).__init__()
         if num_features % num_heads != 0:
             raise Exception
-        self.transformer = Transformer(CustomScaledDotProductAttention(num_features, num_features, num_heads, dropout=dropout), unidirectional=unidirectional)
+        self.self_attention = SelfAttention(CustomScaledDotProductAttention(num_features, num_features, num_heads, dropout=dropout), unidirectional=unidirectional)
         self.normalize1 = LayerNorm(num_features)
-        self.linear1 = nn.Linear(num_features, num_features*4)
-        self.linear2 = nn.Linear(num_features*4, num_features)
+        self.linear1 = nn.Linear(num_features, num_hidden)
+        self.linear2 = nn.Linear(num_hidden, num_features)
         self.normalize2 = LayerNorm(num_features)
 
     def forward(self, x, length):
-        x2, distribution = self.transformer(x, length, return_distribution=True)
+        x2, distribution = self.self_attention(x, length, return_distribution=True)
         x2 = self.normalize1(x2 + x)
         results = self.linear2(F.relu(self.linear1(x2))) # batch_size, sequence_length, vector_length
         results = self.normalize2(results + x2)
         return results, distribution
 
-class CustomTransformerCell(nn.Module):
-    def __init__(self, num_features, num_heads, dropout=None):
-        super(CustomTransformerCell, self).__init__()
+class CustomTransformerEncCell(nn.Module):
+    def __init__(self, num_features, num_hidden, num_heads, dropout=None):
+        super(CustomTransformerEncCell, self).__init__()
         if num_features % num_heads != 0:
             raise Exception
-        self.transformer_cell = TransformerCell(CustomScaledDotProductAttention(num_features, num_features, num_heads, dropout=dropout))
+        self.self_attention_cell = SelfAttentionCell(CustomScaledDotProductAttention(num_features, num_features, num_heads, dropout=dropout))
         self.normalize1 = LayerNorm(num_features)
-        self.linear1 = nn.Linear(num_features, num_features*4)
-        self.linear2 = nn.Linear(num_features*4, num_features)
+        self.linear1 = nn.Linear(num_features, num_hidden)
+        self.linear2 = nn.Linear(num_hidden, num_features)
         self.normalize2 = LayerNorm(num_features)
 
     def forward(self, token, previous):
-        token2, next_previous, distribution = self.transformer_cell(token, previous, return_distribution=True)
+        token2, next_previous, distribution = self.self_attention_cell(token, previous, return_distribution=True)
         token2 = self.normalize1(token2 + token)
         new_token = self.linear2(F.relu(self.linear1(token2)))
         new_token = self.normalize2(new_token + token2)
         return new_token, next_previous, distribution
 
-class CustomTransformerCell2(nn.Module):
-    def __init__(self, num_features, num_heads, dropout=None):
-        self.transformer_cell = CustomTransformerCell(num_features, num_heads, dropout=dropout)
-        pass
+class CustomTransformerDecCell(nn.Module):
+    def __init__(self, num_features, num_hidden, num_heads, dropout=None):
+        super(CustomTransformerDecCell, self).__init__()
+        if num_features % num_heads != 0:
+            raise Exception
+        self.self_attention_cell = SelfAttentionCell(CustomScaledDotProductAttention(num_features, num_features, num_heads, dropout=dropout))
+        self.attention_over_encoder = CustomScaledDotProductAttention(num_features, num_features, num_heads, dropout=dropout)
+        self.normalize1 = LayerNorm(num_features)
+        self.normalize2 = LayerNorm(num_features)
+        self.linear1 = nn.Linear(num_features, num_hidden)
+        self.linear2 = nn.Linear(num_hidden, num_features)
+        self.normalize3 = LayerNorm(num_features)
+
+    def forward(self, token, previous, encoder_vecs):
+        token2, next_previous, distribution_over_dec = self.self_attention_cell(token, previous, return_distribution=True)
+        token2 = self.normalize1(token2 + token)
+        token3, distribution_over_enc = self.attention_over_encoder(token2.unsqueeze(1), encoder_vecs, encoder_vecs, return_distribution=True)
+        token3, distribution_over_enc = token3[:,0], distribution_over_enc[:,0]
+        token3 = self.normalize2(token3 + token2)
+        new_token = self.linear2(F.relu(self.linear1(token3)))
+        new_token = self.normalize3(new_token + token3)
+        return new_token, next_previous, distribution_over_dec, distribution_over_enc

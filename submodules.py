@@ -1,11 +1,12 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order
+from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order, MultiTensorIndexableWrapper
 import parameters as p
 from model_helpers import init_lstm_weights, init_linear_weights
-from transformer import positional_encoding, CustomTransformer, CustomTransformerCell
+from transformer import positional_encoding, CustomTransformerEnc, CustomTransformerDecCell
 from attention import Attention, AdditiveAttention
+import pdb
 
 # Description: this file contains the sub neural networks that are used in the summarization models
 # Outline:
@@ -50,27 +51,30 @@ class StateEncoder(nn.Module):
 class TransformerTextEncoder(nn.Module):
     def __init__(self, num_features, num_hidden):
         super(TransformerTextEncoder, self).__init__()
+        num_hidden2 = p.TRANSFORMER_FF_HIDDEN
         num_heads = p.NUM_TRANSFORMER_HEADS
         N = p.NUM_TRANSFORMER_LAYERS
         dropout = p.DROPOUT
         num_hidden *= 2
         self.linear = nn.Linear(num_features, num_hidden)
         init_linear_weights(self.linear)
-        self.transformers = nn.ModuleList([CustomTransformer(num_hidden, num_heads, dropout=dropout) for _ in range(N)])
+        self.transformers = nn.ModuleList([CustomTransformerEnc(num_hidden, num_hidden2, num_heads, dropout=dropout) for _ in range(N)])
         for t in self.transformers:
-            init_linear_weights(t.transformer.attention_func.value_layer)
-            init_linear_weights(t.transformer.attention_func.final_layer)
+            init_linear_weights(t.self_attention.attention_func.value_layer)
+            init_linear_weights(t.self_attention.attention_func.final_layer)
 
     def forward(self, x, length, store=None):
         x = x + positional_encoding(sequence_length=x.size(1), vector_length=x.size(2), device=x.device)
         x = self.linear(x)
+        encoder_vecs = torch.zeros(x.size(0), len(self.transformers), x.size(1), x.size(2), device=x.device)
         distributions = []
-        for transformer in self.transformers:
+        for i,transformer in enumerate(self.transformers):
             x, distribution = transformer(x, length)
+            encoder_vecs[:,i] = x
             distributions.append(distribution.unsqueeze(1))
         if store is not None:
             store['encoder_transformer_attns'] = torch.cat(distributions, 1)
-        return x, None
+        return x, MultiTensorIndexableWrapper(encoder_vecs)
 
 class LSTMSummaryDecoder(nn.Module):
     def __init__(self, num_features, num_hidden):
@@ -84,31 +88,61 @@ class LSTMSummaryDecoder(nn.Module):
         h, c = self.lstm_cell(token, (h, c))
         return torch.cat([h, c], 1), torch.cat([h, c], 1)
 
+# class TransformerSummaryDecoder(nn.Module):
+#     def __init__(self, num_features, num_hidden):
+#         super(TransformerSummaryDecoder, self).__init__()
+#         num_hidden2 = p.TRANSFORMER_FF_HIDDEN
+#         num_heads = p.NUM_TRANSFORMER_HEADS
+#         N = p.NUM_TRANSFORMER_LAYERS
+#         dropout = p.DROPOUT
+#         num_hidden *= 2
+#         self.linear = nn.Linear(num_features, num_hidden)
+#         self.transformer_cells = nn.ModuleList([CustomTransformerEncCell(num_hidden, num_hidden2, num_heads, dropout=dropout) for _ in range(N)])
+#         for t in self.transformer_cells:
+#             init_linear_weights(t.self_attention_cell.attention_func.value_layer)
+#             init_linear_weights(t.self_attention_cell.attention_func.final_layer)
+
+#     # token - batch_size, vector_length
+#     # previous - batch_size, num_layers, sequence_length, vector_length
+#     def forward(self, token, previous):
+#         length = previous.size(2) if previous is not None else 0
+#         # TODO: slightly inefficient
+#         token = token + positional_encoding(sequence_length=length+1, vector_length=token.size(1), device=token.device)[:,-1,:]
+#         token = self.linear(token)
+#         next_previous_list = []
+#         for i,transformer_cell in enumerate(self.transformer_cells):
+#             token, next_previous, distribution = transformer_cell(token, previous[:,i] if previous is not None else None)
+#             next_previous_list.append(next_previous.unsqueeze(1))
+#         return token, torch.cat(next_previous_list, 1)
 class TransformerSummaryDecoder(nn.Module):
     def __init__(self, num_features, num_hidden):
         super(TransformerSummaryDecoder, self).__init__()
+        num_hidden2 = p.TRANSFORMER_FF_HIDDEN
         num_heads = p.NUM_TRANSFORMER_HEADS
         N = p.NUM_TRANSFORMER_LAYERS
         dropout = p.DROPOUT
         num_hidden *= 2
         self.linear = nn.Linear(num_features, num_hidden)
-        self.transformer_cells = nn.ModuleList([CustomTransformerCell(num_hidden, num_heads, dropout=dropout) for _ in range(N)])
+        self.transformer_cells = nn.ModuleList([CustomTransformerDecCell(num_hidden, num_hidden2, num_heads, dropout=dropout) for _ in range(N)])
         for t in self.transformer_cells:
-            init_linear_weights(t.transformer_cell.attention_func.value_layer)
-            init_linear_weights(t.transformer_cell.attention_func.final_layer)
+            init_linear_weights(t.self_attention_cell.attention_func.value_layer)
+            init_linear_weights(t.self_attention_cell.attention_func.final_layer)
+            init_linear_weights(t.attention_over_encoder.value_layer)
+            init_linear_weights(t.attention_over_encoder.final_layer)
 
     # token - batch_size, vector_length
     # previous - batch_size, num_layers, sequence_length, vector_length
-    def forward(self, token, previous):
+    def forward(self, token, encodervecs_previous):
+        encoder_vecs, previous = encodervecs_previous.tensors if len(encodervecs_previous.tensors) == 2 else (encodervecs_previous.tensors[0], None)
         length = previous.size(2) if previous is not None else 0
         # TODO: slightly inefficient
         token = token + positional_encoding(sequence_length=length+1, vector_length=token.size(1), device=token.device)[:,-1,:]
         token = self.linear(token)
         next_previous_list = []
         for i,transformer_cell in enumerate(self.transformer_cells):
-            token, next_previous, distribution = transformer_cell(token, previous[:,i] if previous is not None else None)
+            token, next_previous, distribution_over_dec, distribution_over_enc = transformer_cell(token, previous[:,i] if previous is not None else None, encoder_vecs[:,i])
             next_previous_list.append(next_previous.unsqueeze(1))
-        return token, torch.cat(next_previous_list, 1)
+        return token, MultiTensorIndexableWrapper(encoder_vecs, torch.cat(next_previous_list, 1))
 
 # class TransformerSummaryDecoderParallel(nn.Module):
 #     def __init__(self, transformer_summary_decoder):
