@@ -5,13 +5,13 @@ import parameters as p
 
 
 class AspectSummarizer(Summarizer):
-    def __init__(self, vectorizer, start_index, end_index, aspects, lstm_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False, encoder_base=LSTMTextEncoder, decoder_base=LSTMSummaryDecoder, decoder_parallel_base=None):
+    def __init__(self, vectorizer, start_index, end_index, aspects, enc_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False, encoder_base=LSTMTextEncoder, decoder_base=LSTMSummaryDecoder, decoder_parallel_base=None):
         self.aspects = aspects
         super(AspectSummarizer, self).__init__(
             vectorizer,
             start_index,
             end_index,
-            lstm_hidden=lstm_hidden,
+            enc_hidden=enc_hidden,
             attn_hidden=attn_hidden,
             with_coverage=with_coverage,
             gamma=gamma,
@@ -25,8 +25,8 @@ class AspectSummarizer(Summarizer):
     def init_submodules(self):
         decoder_class = Decoder if not self.with_pointer else PointerGenDecoder
         for i,aspect in enumerate(self.aspects):
-            self.__setattr__('encoder%i' % i, Encoder(self.vectorizer, self.lstm_hidden, encoder_base=self.encoder_base))
-            self.__setattr__('decoder%i' % i, decoder_class(self.vectorizer, self.start_index, self.end_index, self.lstm_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma, decoder_base=self.decoder_base, decoder_parallel_base=self.decoder_parallel_base))
+            self.__setattr__('encoder%i' % i, Encoder(self.vectorizer, self.enc_hidden, encoder_base=self.encoder_base))
+            self.__setattr__('decoder%i' % i, decoder_class(self.vectorizer, self.start_index, self.end_index, self.enc_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma, decoder_base=self.decoder_base, decoder_parallel_base=self.decoder_parallel_base))
 
     def forward(self, text, text_length, text_oov_indices=None, beam_size=1, store=None, **kwargs):
         if len(kwargs) == 0:

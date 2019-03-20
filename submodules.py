@@ -18,8 +18,10 @@ import pdb
 # Encodes text through an LSTM
 class LSTMTextEncoder(nn.Module):
     def __init__(self, num_features, num_hidden):
+        if num_hidden % 2 != 0:
+            raise Exception
         super(LSTMTextEncoder, self).__init__()
-        self.lstm = nn.LSTM(num_features, num_hidden, bidirectional=True, batch_first=True)
+        self.lstm = nn.LSTM(num_features, num_hidden//2, bidirectional=True, batch_first=True)
         init_lstm_weights(self.lstm)
         self.state_encoder = StateEncoder(num_hidden)
 
@@ -33,10 +35,12 @@ class LSTMTextEncoder(nn.Module):
 # in order to be input into the decoder
 class StateEncoder(nn.Module):
     def __init__(self, num_hidden):
+        if num_hidden % 2 != 0:
+            raise Exception
         super(StateEncoder, self).__init__()
-        self.linearh = nn.Linear(num_hidden*2, num_hidden)
+        self.linearh = nn.Linear(num_hidden, num_hidden//2)
         init_linear_weights(self.linearh)
-        self.linearc = nn.Linear(num_hidden*2, num_hidden)
+        self.linearc = nn.Linear(num_hidden, num_hidden//2)
         init_linear_weights(self.linearc)
 #         for param in self.parameters():
 #             param.data.normal_(std=p.WEIGHT_INIT_STD)
@@ -49,23 +53,25 @@ class StateEncoder(nn.Module):
         return h, c
 
 class TransformerTextEncoder(nn.Module):
-    def __init__(self, num_features, num_hidden):
+    def __init__(self, num_features, enc_hidden):
         super(TransformerTextEncoder, self).__init__()
-        num_hidden2 = p.TRANSFORMER_FF_HIDDEN
+        transformer_hidden = p.TRANSFORMER_HIDDEN
+        transformer_ff_hidden = p.TRANSFORMER_FF_HIDDEN
         num_heads = p.NUM_TRANSFORMER_HEADS
         N = p.NUM_TRANSFORMER_LAYERS
         dropout = p.DROPOUT
-        num_hidden *= 2
-        self.linear = nn.Linear(num_features, num_hidden)
-        init_linear_weights(self.linear)
-        self.transformers = nn.ModuleList([CustomTransformerEnc(num_hidden, num_hidden2, num_heads, dropout=dropout) for _ in range(N)])
+        self.linear1 = nn.Linear(num_features, transformer_hidden)
+        init_linear_weights(self.linear1)
+        self.transformers = nn.ModuleList([CustomTransformerEnc(transformer_hidden, transformer_ff_hidden, num_heads, dropout=dropout) for _ in range(N)])
         for t in self.transformers:
             init_linear_weights(t.self_attention.attention_func.value_layer)
             init_linear_weights(t.self_attention.attention_func.final_layer)
+        self.linear2 = nn.Linear(transformer_hidden, enc_hidden)
+        init_linear_weights(self.linear2)
 
     def forward(self, x, length, store=None):
         x = x + positional_encoding(sequence_length=x.size(1), vector_length=x.size(2), device=x.device)
-        x = self.linear(x)
+        x = self.linear1(x)
         encoder_vecs = torch.zeros(x.size(0), len(self.transformers), x.size(1), x.size(2), device=x.device)
         distributions = []
         for i,transformer in enumerate(self.transformers):
@@ -74,12 +80,15 @@ class TransformerTextEncoder(nn.Module):
             distributions.append(distribution.unsqueeze(1))
         if store is not None:
             store['encoder_transformer_attns'] = torch.cat(distributions, 1)
+        x = self.linear2(x)
         return x, MultiTensorIndexableWrapper(encoder_vecs)
 
 class LSTMSummaryDecoder(nn.Module):
     def __init__(self, num_features, num_hidden):
+        if num_hidden % 2 != 0:
+            raise Exception
         super(LSTMSummaryDecoder, self).__init__()
-        self.lstm_cell = nn.LSTMCell(num_features, num_hidden)
+        self.lstm_cell = nn.LSTMCell(num_features, num_hidden//2)
         init_lstm_weights(self.lstm_cell)
 
     def forward(self, token, previous):
@@ -115,20 +124,23 @@ class LSTMSummaryDecoder(nn.Module):
 #             next_previous_list.append(next_previous.unsqueeze(1))
 #         return token, torch.cat(next_previous_list, 1)
 class TransformerSummaryDecoder(nn.Module):
-    def __init__(self, num_features, num_hidden):
+    def __init__(self, num_features, enc_hidden):
         super(TransformerSummaryDecoder, self).__init__()
-        num_hidden2 = p.TRANSFORMER_FF_HIDDEN
+        transformer_hidden = p.TRANSFORMER_HIDDEN
+        transformer_ff_hidden = p.TRANSFORMER_FF_HIDDEN
         num_heads = p.NUM_TRANSFORMER_HEADS
         N = p.NUM_TRANSFORMER_LAYERS
         dropout = p.DROPOUT
-        num_hidden *= 2
-        self.linear = nn.Linear(num_features, num_hidden)
-        self.transformer_cells = nn.ModuleList([CustomTransformerDecCell(num_hidden, num_hidden2, num_heads, dropout=dropout) for _ in range(N)])
+        self.linear1 = nn.Linear(num_features, transformer_hidden)
+        init_linear_weights(self.linear1)
+        self.transformer_cells = nn.ModuleList([CustomTransformerDecCell(transformer_hidden, transformer_ff_hidden, num_heads, dropout=dropout) for _ in range(N)])
         for t in self.transformer_cells:
             init_linear_weights(t.self_attention_cell.attention_func.value_layer)
             init_linear_weights(t.self_attention_cell.attention_func.final_layer)
             init_linear_weights(t.attention_over_encoder.value_layer)
             init_linear_weights(t.attention_over_encoder.final_layer)
+        self.linear2 = nn.Linear(transformer_hidden, enc_hidden)
+        init_linear_weights(self.linear2)
 
     # token - batch_size, vector_length
     # previous - batch_size, num_layers, sequence_length, vector_length
@@ -137,11 +149,12 @@ class TransformerSummaryDecoder(nn.Module):
         length = previous.size(2) if previous is not None else 0
         # TODO: slightly inefficient
         token = token + positional_encoding(sequence_length=length+1, vector_length=token.size(1), device=token.device)[:,-1,:]
-        token = self.linear(token)
+        token = self.linear1(token)
         next_previous_list = []
         for i,transformer_cell in enumerate(self.transformer_cells):
             token, next_previous, distribution_over_dec, distribution_over_enc = transformer_cell(token, previous[:,i] if previous is not None else None, encoder_vecs[:,i])
             next_previous_list.append(next_previous.unsqueeze(1))
+        token = self.linear2(token)
         return token, MultiTensorIndexableWrapper(encoder_vecs, torch.cat(next_previous_list, 1))
 
 # class TransformerSummaryDecoderParallel(nn.Module):

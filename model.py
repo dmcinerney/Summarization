@@ -13,13 +13,13 @@ import pdb
 # c) Decoder
 
 class Summarizer(nn.Module):
-    def __init__(self, vectorizer, start_index, end_index, lstm_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False, encoder_base=LSTMTextEncoder, decoder_base=LSTMSummaryDecoder, decoder_parallel_base=None):
+    def __init__(self, vectorizer, start_index, end_index, enc_hidden=None, attn_hidden=None, with_coverage=False, gamma=1, with_pointer=False, encoder_base=LSTMTextEncoder, decoder_base=LSTMSummaryDecoder, decoder_parallel_base=None):
         super(Summarizer, self).__init__()
 
         self.vectorizer = vectorizer
         self.start_index = start_index
         self.end_index = end_index
-        self.lstm_hidden = vectorizer.vector_size//2 if lstm_hidden is None else lstm_hidden
+        self.enc_hidden = vectorizer.vector_size//2 if enc_hidden is None else enc_hidden
         self.attn_hidden = attn_hidden
         self.with_coverage = with_coverage
         self.gamma = gamma
@@ -31,8 +31,8 @@ class Summarizer(nn.Module):
 
     def init_submodules(self):
         decoder_class = Decoder if not self.with_pointer else PointerGenDecoder
-        self.encoder = Encoder(self.vectorizer, self.lstm_hidden, encoder_base=self.encoder_base)
-        self.decoder = decoder_class(self.vectorizer, self.start_index, self.end_index, self.lstm_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma, decoder_base=self.decoder_base, decoder_parallel_base=self.decoder_parallel_base)
+        self.encoder = Encoder(self.vectorizer, self.enc_hidden, encoder_base=self.encoder_base)
+        self.decoder = decoder_class(self.vectorizer, self.start_index, self.end_index, self.enc_hidden, attn_hidden=self.attn_hidden, with_coverage=self.with_coverage, gamma=self.gamma, decoder_base=self.decoder_base, decoder_parallel_base=self.decoder_parallel_base)
 
     def forward(self, text, text_length, text_oov_indices=None, summary=None, summary_length=None, beam_size=1, store=None):
         text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
@@ -44,12 +44,12 @@ class Summarizer(nn.Module):
         return self.decoder(text_states, text_length, state, summary=summary, summary_length=summary_length, beam_size=beam_size)
 
 class Encoder(nn.Module):
-    def __init__(self, vectorizer, lstm_hidden, encoder_base=LSTMTextEncoder):
+    def __init__(self, vectorizer, enc_hidden, encoder_base=LSTMTextEncoder):
         super(Encoder, self).__init__()
         self.vectorizer = vectorizer
         num_features = self.vectorizer.vector_size
 
-        self.text_encoder = encoder_base(num_features, lstm_hidden)
+        self.text_encoder = encoder_base(num_features, enc_hidden)
 
     def forward(self, text, text_length, store=None):
         # get batch with vectors from index batch
@@ -62,13 +62,13 @@ class Encoder(nn.Module):
         return text_states, state
 
 class Decoder(nn.Module):
-    def __init__(self, vectorizer, start_index, end_index, lstm_hidden, attn_hidden=None, with_coverage=False, gamma=1, decoder_base=LSTMSummaryDecoder, decoder_parallel_base=None):
+    def __init__(self, vectorizer, start_index, end_index, enc_hidden, attn_hidden=None, with_coverage=False, gamma=1, decoder_base=LSTMSummaryDecoder, decoder_parallel_base=None):
         super(Decoder, self).__init__()
         self.vectorizer = vectorizer
         self.start_index = start_index
         self.end_index = end_index
-        self.lstm_hidden = lstm_hidden
-        self.attn_hidden = num_features//2 if attn_hidden is None else attn_hidden
+        self.enc_hidden = enc_hidden
+        self.attn_hidden = enc_hidden//2 if attn_hidden is None else attn_hidden
         self.with_coverage = with_coverage
         self.gamma = gamma
 
@@ -79,12 +79,12 @@ class Decoder(nn.Module):
         self.init_submodules()
 
     def init_submodules(self):
-        self.summary_decoder = self.decoder_base(self.num_features, self.lstm_hidden)
+        self.summary_decoder = self.decoder_base(self.num_features, self.enc_hidden)
         if self.decoder_parallel_base is not None:
 #             self.summary_decoder_parallel = self.decoder_parallel_base(self.summary_decoder)
             raise NotImplementedError("Parallel base optimized mode is still under construction!")
-        self.context_nn = ContextVectorNN(self.lstm_hidden*4+1, self.attn_hidden)
-        self.vocab_nn = VocabularyDistributionNN(self.lstm_hidden*4, self.lstm_hidden, self.num_vocab+1)
+        self.context_nn = ContextVectorNN(self.enc_hidden*2+1, self.attn_hidden)
+        self.vocab_nn = VocabularyDistributionNN(self.enc_hidden*2, self.enc_hidden//2, self.num_vocab+1)
 
     def forward(self, text_states, text_length, state, summary=None, summary_length=None, beam_size=1):
         if summary is None:
@@ -262,7 +262,7 @@ class PointerGenDecoder(Decoder):
 
     def init_submodules(self):
         super(PointerGenDecoder, self).init_submodules()
-        self.probability_layer = ProbabilityNN(self.lstm_hidden*4)
+        self.probability_layer = ProbabilityNN(self.enc_hidden*2)
 
     def set_pointer_info(self, pointer_info):
         self.pointer_info = pointer_info
