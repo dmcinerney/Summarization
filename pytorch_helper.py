@@ -486,17 +486,6 @@ def batch_stitch(tensor_lists, indices, static_flags=None):
         return_tensors.append(new_tensor.gather(0, indices.view(*size).expand(size[0],*new_tensor.shape[1:])))
     return return_tensors
 
-class MultiTensorIndexableWrapper:
-    def __init__(self, *tensors):
-        self.tensors = tensors
-
-    def __getitem__(self, index):
-        return MultiTensorIndexableWrapper(*(t[index] for t in self.tensors))
-
-    def __setitem__(self, index, other):
-        for i,t in enumerate(self.tensors):
-            t[index] = other.tensors[i]
-
 def nan_to_num_hook(grad):
     new_grad = grad.clone()
     if (new_grad != new_grad).any():

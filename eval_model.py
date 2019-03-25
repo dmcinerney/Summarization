@@ -4,11 +4,10 @@ from data import get_data
 import subprocess
 import os
 
-CHECKPOINTS_FOLDER = 'checkpoints/clean/LSTM'
+CHECKPOINTS_FOLDER = 'checkpoints/clean/Transformer'
 DEVICE = 'cuda:1'
-USE_TRANSFORMER = False
+USE_TRANSFORMER = True
 P_GEN = None
-
 sections = [dict(
     model_file=os.path.join(CHECKPOINTS_FOLDER, 'checkpoint%i/model_state.pkl' % i),
     text_path=os.path.join(CHECKPOINTS_FOLDER, 'checkpoint%i' % i),

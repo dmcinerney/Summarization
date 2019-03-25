@@ -23,7 +23,7 @@ def new_model(vectorizer, aspects):
         start_index,
         end_index,
         aspects,
-        enc_hidden=p.ENC_HIDDEN,
+        num_hidden=p.NUM_HIDDEN,
         attn_hidden=p.ATTN_HIDDEN,
         with_coverage=p.WITH_COVERAGE,
         gamma=p.GAMMA,

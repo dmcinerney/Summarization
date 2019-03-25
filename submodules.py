@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order, MultiTensorIndexableWrapper
+from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order
 import parameters as p
 from model_helpers import init_lstm_weights, init_linear_weights
 from transformer import positional_encoding, CustomTransformerEnc, CustomTransformerDecCell
@@ -18,9 +18,9 @@ import pdb
 # Encodes text through an LSTM
 class LSTMTextEncoder(nn.Module):
     def __init__(self, num_features, num_hidden):
+        super(LSTMTextEncoder, self).__init__()
         if num_hidden % 2 != 0:
             raise Exception
-        super(LSTMTextEncoder, self).__init__()
         self.lstm = nn.LSTM(num_features, num_hidden//2, bidirectional=True, batch_first=True)
         init_lstm_weights(self.lstm)
         self.state_encoder = StateEncoder(num_hidden)
@@ -35,9 +35,9 @@ class LSTMTextEncoder(nn.Module):
 # in order to be input into the decoder
 class StateEncoder(nn.Module):
     def __init__(self, num_hidden):
+        super(StateEncoder, self).__init__()
         if num_hidden % 2 != 0:
             raise Exception
-        super(StateEncoder, self).__init__()
         self.linearh = nn.Linear(num_hidden, num_hidden//2)
         init_linear_weights(self.linearh)
         self.linearc = nn.Linear(num_hidden, num_hidden//2)
@@ -72,22 +72,33 @@ class TransformerTextEncoder(nn.Module):
     def forward(self, x, length, store=None):
         x = x + positional_encoding(sequence_length=x.size(1), vector_length=x.size(2), device=x.device)
         x = self.linear1(x)
-        encoder_vecs = torch.zeros(x.size(0), len(self.transformers), x.size(1), x.size(2), device=x.device)
+        # a little hacky, pack encoder vecs into one array but have all the elements of the first item (3rd dim = 0) be the length of the source sequence
+        encoder_vecs = torch.zeros(x.size(0), len(self.transformers), 1+x.size(1), x.size(2), device=x.device)
+        encoder_vecs[:,:,0,:] = x.size(1)
         distributions = []
         for i,transformer in enumerate(self.transformers):
             x, distribution = transformer(x, length)
-            encoder_vecs[:,i] = x
+            encoder_vecs[:,i,1:] = x
             distributions.append(distribution.unsqueeze(1))
         if store is not None:
             store['encoder_transformer_attns'] = torch.cat(distributions, 1)
         x = self.linear2(x)
-        return x, MultiTensorIndexableWrapper(encoder_vecs)
+        return x, encoder_vecs
+
+class CombineContext(nn.Module):
+    def __init__(self, num_features, num_context_features):
+        super(CombineContext, self).__init__()
+        self.linear = nn.Linear(num_features+num_context_features, num_features)
+
+    def forward(self, token, prev_context_vector):
+        x = torch.cat((token, prev_context_vector), 1)
+        return self.linear(x)
 
 class LSTMSummaryDecoder(nn.Module):
     def __init__(self, num_features, num_hidden):
+        super(LSTMSummaryDecoder, self).__init__()
         if num_hidden % 2 != 0:
             raise Exception
-        super(LSTMSummaryDecoder, self).__init__()
         self.lstm_cell = nn.LSTMCell(num_features, num_hidden//2)
         init_lstm_weights(self.lstm_cell)
 
@@ -145,7 +156,8 @@ class TransformerSummaryDecoder(nn.Module):
     # token - batch_size, vector_length
     # previous - batch_size, num_layers, sequence_length, vector_length
     def forward(self, token, encodervecs_previous):
-        encoder_vecs, previous = encodervecs_previous.tensors if len(encodervecs_previous.tensors) == 2 else (encodervecs_previous.tensors[0], None)
+        seq_length = encodervecs_previous[0,0,0,0].int()
+        encoder_vecs, previous = encodervecs_previous[:,:,1:1+seq_length,:], encodervecs_previous[:,:,1+seq_length:,:] if 1+seq_length < encodervecs_previous.size(2) else None
         length = previous.size(2) if previous is not None else 0
         # TODO: slightly inefficient
         token = token + positional_encoding(sequence_length=length+1, vector_length=token.size(1), device=token.device)[:,-1,:]
@@ -155,7 +167,7 @@ class TransformerSummaryDecoder(nn.Module):
             token, next_previous, distribution_over_dec, distribution_over_enc = transformer_cell(token, previous[:,i] if previous is not None else None, encoder_vecs[:,i])
             next_previous_list.append(next_previous.unsqueeze(1))
         token = self.linear2(token)
-        return token, MultiTensorIndexableWrapper(encoder_vecs, torch.cat(next_previous_list, 1))
+        return token, torch.cat((encodervecs_previous[:,:,:1+seq_length,:], torch.cat(next_previous_list, 1)), 2)
 
 # class TransformerSummaryDecoderParallel(nn.Module):
 #     def __init__(self, transformer_summary_decoder):

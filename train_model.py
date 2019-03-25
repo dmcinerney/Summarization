@@ -5,7 +5,7 @@ import subprocess
 import os
 from pytorch_helper import StopEarlyWithoutSavingException
 
-CHECKPOINTS_FOLDER = 'checkpoints/clean/Transformer'
+CHECKPOINTS_FOLDER = 'checkpoints/clean/Transformer_1'
 DEVICE = 'cuda:1'
 USE_TRANSFORMER = True
 P_GEN = None
@@ -20,11 +20,9 @@ sections = [
     dict(max_training_steps=80000,  max_text_length=400, max_summary_length=100, with_coverage=False),
     dict(max_training_steps=90000,  max_text_length=400, max_summary_length=100, with_coverage=False),
     dict(max_training_steps=100000, max_text_length=400, max_summary_length=100, with_coverage=False),
-    dict(max_training_steps=100020, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=100040, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=100060, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=100080, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=100100, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=101000, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=102000, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=103000, max_text_length=400, max_summary_length=100, with_coverage=True),
 ]
 
 if __name__ == '__main__':

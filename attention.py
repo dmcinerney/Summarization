@@ -41,7 +41,7 @@ class AdditiveAttention(Attention):
     def __init__(self, input_size, hidden_size):
         super(AdditiveAttention, self).__init__()
         self.linear1 = nn.Linear(input_size, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, 1)
+        self.linear2 = nn.Linear(hidden_size, 1, bias=False)
 
     def scores(self, queries, keys):
         (b, n_q, q_v), (_, s, k_v) = queries.size(), keys.size()
