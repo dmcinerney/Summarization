@@ -22,28 +22,26 @@ def clip_grad_norm(parameters):
 
 # inspired by https://github.com/atulkum/pointer_summarizer/blob/master/training_ptr_gen/model.py
 def init_lstm_weights(module):
-#     for name,param in module.named_parameters():
-#         if name.startswith('weight_'):
-#             param.data.uniform_(-p.WEIGHT_INIT_MAG, p.WEIGHT_INIT_MAG)
-#         elif name.startswith('bias_'):
-#             # set forget bias to 1
-#             start, end = param.size(0) // 4, param.size(0) // 2
-#             param.data.fill_(0.)
-#             param.data[start:end].fill_(1.)
-    pass
+    for name,param in module.named_parameters():
+        if name.startswith('weight_'):
+            param.data.uniform_(-p.WEIGHT_INIT_MAG, p.WEIGHT_INIT_MAG)
+        elif name.startswith('bias_'):
+            # set forget bias to 1
+            start, end = param.size(0) // 4, param.size(0) // 2
+            param.data.fill_(0.)
+            param.data[start:end].fill_(1.)
 
 # inspired by https://github.com/atulkum/pointer_summarizer/blob/master/training_ptr_gen/model.py
 def init_linear_weights(linear):
-#     linear.weight.data.normal_(std=p.WEIGHT_INIT_MAG)
-#     if linear.bias is not None:
-#         linear.bias.data.normal_(std=p.WEIGHT_INIT_MAG)
-    pass
+    linear.weight.data.normal_(std=p.WEIGHT_INIT_MAG)
+    if linear.bias is not None:
+        linear.bias.data.normal_(std=p.WEIGHT_INIT_MAG)
 
 # inspired by https://github.com/atulkum/pointer_summarizer/blob/master/training_ptr_gen/model.py
 def init_weights_normal(weight):
     weight.data.normal_(std=p.WEIGHT_INIT_MAG)
 
-# inspired by https://github.com/atulkum/pointer_summarizer/blob/master/training_ptr_gen/model.py
+# # inspired by https://github.com/atulkum/pointer_summarizer/blob/master/training_ptr_gen/model.py
 def init_weights_uniform(weight):
     weight.data.uniform_(-p.WEIGHT_INIT_MAG, p.WEIGHT_INIT_MAG)
 

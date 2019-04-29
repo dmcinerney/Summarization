@@ -130,8 +130,8 @@ if __name__ == '__main__':
     # preprocess_newsroom_datafile(filename, new_filename)
 
     # for cnn dataset
-    filename = 'data/cnn_dataset/train.bin'
-    new_filename = 'data/cnn_dataset/train_processed2.data'
+    filename = 'data/cnn_dataset/test.bin'
+    new_filename = 'data/cnn_dataset/test_processed.data'
     preprocess_cnn_datafile(filename, new_filename)
 
     # for pico dataset

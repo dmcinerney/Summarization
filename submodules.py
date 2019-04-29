@@ -239,7 +239,6 @@ class VocabularyDistributionNN(nn.Module):
     def __init__(self, num_features, num_hidden, num_vocab):
         super(VocabularyDistributionNN, self).__init__()
         self.linear1 = nn.Linear(num_features, num_hidden)
-        init_linear_weights(self.linear1)
         self.linear2 = nn.Linear(num_hidden, num_vocab)
         init_linear_weights(self.linear2)
 

@@ -5,10 +5,10 @@ import subprocess
 import os
 from pytorch_helper import StopEarlyWithoutSavingException
 
-CHECKPOINTS_FOLDER = 'checkpoints/clean/Transformer_1'
-DEVICE = 'cuda:1'
-USE_TRANSFORMER = True
-P_GEN = None
+CHECKPOINTS_FOLDER = 'EMNLP/NSeq2SeqAttn'
+DEVICE = 'cuda:0'
+POINTER_GEN = False
+USE_TRANSFORMER = False
 sections = [
     dict(max_training_steps=10000,  max_text_length=100, max_summary_length=50, with_coverage=False),
     dict(max_training_steps=20000,  max_text_length=100, max_summary_length=50, with_coverage=False),
@@ -20,14 +20,27 @@ sections = [
     dict(max_training_steps=80000,  max_text_length=400, max_summary_length=100, with_coverage=False),
     dict(max_training_steps=90000,  max_text_length=400, max_summary_length=100, with_coverage=False),
     dict(max_training_steps=100000, max_text_length=400, max_summary_length=100, with_coverage=False),
-    dict(max_training_steps=101000, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=102000, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=103000, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=110000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=120000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=130000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=140000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=150000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=160000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=170000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=180000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=190000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=200000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=210000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=220000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=230000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=231000, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=232000, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=233000, max_text_length=400, max_summary_length=100, with_coverage=True),
 ]
 
 if __name__ == '__main__':
     checkpoint_path = os.path.join(CHECKPOINTS_FOLDER,'checkpoint')
-    vectorizer = setup(checkpoint_path=checkpoint_path, device=DEVICE, use_transformer=USE_TRANSFORMER, p_gen=P_GEN)
+    vectorizer = setup(checkpoint_path=checkpoint_path, device=DEVICE, pointer_gen=POINTER_GEN, use_transformer=USE_TRANSFORMER, mode='train')
     data = get_data(p.DATA_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
     val = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE)
     for i,params in enumerate(sections):
