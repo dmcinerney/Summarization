@@ -11,3 +11,7 @@ Datasets:
 -Newsroom summarization dataset from Cornell: https://summari.es/
 
 -PICO dataset from the CDSR
+
+# Run
+
+```time python -u train_model.py 2>&1 | tee <log_file>```
