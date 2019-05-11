@@ -1,6 +1,8 @@
 from gensim.models import Word2Vec
 import os.path
 import spacy, re
+nlp = spacy.load('en_core_web_sm', disable=['parser', 'tagger', 'ner'])
+nlp.add_pipe(nlp.create_pipe('sentencizer'))
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,7 +10,6 @@ import json
 import pandas as pd
 from subprocess import call
 from pytorch_helper import IndicesIterator
-nlp = spacy.load('en_core_web_sm', disable=['parser', 'tagger', 'ner'])
 import pdb
 
 def preprocess_text(text):
@@ -40,7 +41,8 @@ def get_text_triplets(batch, aspect_summaries, vectorizer, aspects):
     for i in range(len(aspect_summaries[0][0])):
         text_indices, text_length = batch['text'][i].numpy(), batch['text_length'][i].numpy()
         oov_words = {v:k for k,v in batch['text_oov_indices'][i].items()} if 'text_oov_indices' in batch.keys() else None
-        text = vectorizer.get_index_words(text_indices[:text_length], oov_words=oov_words)
+        #text = vectorizer.get_index_words(text_indices[:text_length], oov_words=oov_words)
+        text = []
 
         reference_summaries, decoded_summaries = [], []
         for j,aspect in enumerate(aspects):
@@ -59,7 +61,8 @@ def postprocess(text_tokens):
 
 def rouge_preprocess(text_tokens):
     text_tokens = postprocess(text_tokens)
-    return " ".join(text_tokens).replace(" . ", " .\n").replace(" ! ", " !\n").replace(" ? ", " ?\n")
+    #return " ".join(text_tokens).replace(" . ", " .\n").replace(" ! ", " !\n").replace(" ? ", " ?\n")
+    return "\n".join([str(sentence) for sentence in nlp(" ".join(text_tokens)).sents])
 
 def produce_batch_summary_files(batch, vectorizer, model, path, beam_size=1, start_index=0):
     aspect_results = summarize(batch, model, beam_size=beam_size)

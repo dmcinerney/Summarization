@@ -3,7 +3,7 @@ from gensim.corpora import Dictionary
 from data import get_data, Word2VecVectorizer, TrainableVectorizer
 from word_models import train_word2vec_model, save_dictionary
 import os
-from aspect_specific_model import AspectSummarizer
+from hierarchical_model import Summarizer
 from model_helpers import aspect_summarizer_loss, aspect_summarizer_error
 from pytorch_helper import ModelManipulator, TrainingTracker, plot_learning_curves, plot_checkpoint
 import torch
@@ -18,11 +18,10 @@ import argparse
 def new_model(vectorizer, aspects):
     start_index = vectorizer.word_indices['<start>']
     end_index = vectorizer.word_indices['<end>']
-    return AspectSummarizer(
+    return Summarizer(
         vectorizer,
         start_index,
         end_index,
-        aspects,
         num_hidden=p.NUM_HIDDEN,
         attn_hidden=p.ATTN_HIDDEN,
         with_coverage=p.WITH_COVERAGE,
@@ -52,7 +51,8 @@ def train(vectorizer, data=None, val=None):
 
     model = new_model(vectorizer, data.dataset.aspects).train()
     if p.CONTINUE_FROM_CHECKPOINT:
-        TrainingTracker.load_model_state(model, p.CHECKPOINT_PATH, map_location=p.DEVICE)
+        TrainingTracker.load_model_state(model, p.CHECKPOINT_PATH, map_location='cpu')
+        model.to(p.DEVICE)
 
 #     optimizer = torch.optim.Adam(model.parameters(), lr=p.LEARNING_RATE)
     optimizer = torch.optim.Adagrad(
@@ -61,7 +61,7 @@ def train(vectorizer, data=None, val=None):
         initial_accumulator_value=p.INITIAL_ACCUMULATOR_VALUE,
     )
     if p.CONTINUE_FROM_CHECKPOINT:
-        TrainingTracker.load_optimizer_state(optimizer, p.CHECKPOINT_PATH, map_location=p.DEVICE)
+        TrainingTracker.load_optimizer_state(optimizer, p.CHECKPOINT_PATH, map_location='cpu')
 
     model_manip = ModelManipulator(
         model,
@@ -108,7 +108,8 @@ def evaluate(vectorizer, data=None):
     model = new_model(vectorizer, data.dataset.aspects).eval()
     #with open(p.MODEL_FILE, 'rb') as modelfile:
     #    model.load_state_dict(pkl.load(modelfile))
-    model.load_state_dict(torch.load(p.MODEL_FILE, map_location=p.DEVICE))
+    model.load_state_dict(torch.load(p.MODEL_FILE, map_location='cpu'))
+    model.to(p.DEVICE)
     text_path = p.TEXT_PATH
     produce_summary_files(
         data,
@@ -128,7 +129,8 @@ def visualize(vectorizer, data=None):
     model = new_model(vectorizer, data.dataset.aspects).eval()
     #with open(p.MODEL_FILE, 'rb') as modelfile:
     #    model.load_state_dict(pkl.load(modelfile))
-    model.load_state_dict(torch.load(p.MODEL_FILE, map_location=p.DEVICE))
+    model.load_state_dict(torch.load(p.MODEL_FILE, map_location='cpu'))
+    model.to(p.DEVICE)
     batch = data[271:271+p.DECODING_BATCH_SIZE]
     aspect_results = summarize(batch, model, beam_size=p.BEAM_SIZE)
     print_batch(batch, [r[0] for r in aspect_results], vectorizer, model.aspects)

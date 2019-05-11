@@ -5,10 +5,10 @@ import subprocess
 import os
 from pytorch_helper import StopEarlyWithoutSavingException
 
-CHECKPOINTS_FOLDER = 'EMNLP/NSeq2SeqAttn'
+CHECKPOINTS_FOLDER = 'EMNLP/Transformer'
 DEVICE = 'cuda:0'
-POINTER_GEN = False
-USE_TRANSFORMER = False
+POINTER_GEN = True
+USE_TRANSFORMER = True
 sections = [
     dict(max_training_steps=10000,  max_text_length=100, max_summary_length=50, with_coverage=False),
     dict(max_training_steps=20000,  max_text_length=100, max_summary_length=50, with_coverage=False),
@@ -51,3 +51,4 @@ if __name__ == '__main__':
             subprocess.run(['cp','-r',checkpoint_path,os.path.join(CHECKPOINTS_FOLDER,'checkpoint%i' % (i+1))])
         except StopEarlyWithoutSavingException:
             print('Section already done!')
+

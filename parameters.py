@@ -19,7 +19,7 @@ MAX_TRAINING_STEPS = 100000
 POINTER_GEN = True
 USE_TRANSFORMER = False
 PRETRAINED_WORD_VECTORS = False
-DEVICE = 'cuda:1'
+DEVICE = 'cpu'
 AVERAGE_OVER = 30 # for creating plots
 
 # hyperparameters

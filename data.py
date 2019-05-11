@@ -3,7 +3,7 @@ from pytorch_helper import VariableLength
 import pandas as pd
 import torch
 from torch import nn
-from datasets import SummarizationDataset, PreprocessedSummarizationDataset
+from datasets import SummarizationDataset, PreprocessedSummarizationDataset, HierarchicalDataset
 from model_helpers import init_weights_normal
 import pdb
 
@@ -111,8 +111,9 @@ class TrainableVectorizer(Vectorizer):
     def vector_size(self):
         return self._vector_size
 
-def get_data(data_file, vectorizer, with_oov=False, aspect_file=None):
+def get_data(data_file, vectorizer, with_oov=False, aspect_file=None, hierarchical=False):
     print('reading data from '+data_file)
     data = pd.read_json(data_file, lines=True, compression='gzip')
     print('data read, length is %i' % len(data))
-    return PreprocessedSummarizationDataset(SummarizationDataset(data, aspect_file=aspect_file), vectorizer, with_oov=with_oov)
+    Dataset = PreprocessedSummarizationDataset if not hierarchical else HierarchicalDataset
+    return Dataset(SummarizationDataset(data, aspect_file=aspect_file), vectorizer, with_oov=with_oov)

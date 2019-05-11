@@ -12,6 +12,12 @@ import pickle as pkl
 import pdb
 import time
 
+def move_optimizer(optimizer, device):
+    for state in optimizer.state.values():
+        for k, v in state.items():
+            if isinstance(v, torch.Tensor):
+                state[k] = v.to(device)
+
 class ModelManipulator:
     # inputs:
     #     -model is a python Module with a forward function
@@ -99,26 +105,29 @@ class TrainingTracker:
     @staticmethod
     def valid_checkpoint(checkpoint_path):
         return (os.path.exists(os.path.join(checkpoint_path, 'model.model')) or \
-                os.path.exists(os.path.join(checkpoint_path, 'model_state.pkl'))) and \
+                os.path.exists(os.path.join(checkpoint_path, 'model_state.tpkl'))) and \
                os.path.exists(os.path.join(checkpoint_path, 'iternum.txt')) and \
                os.path.exists(os.path.join(checkpoint_path, 'train_info.txt')) and \
                os.path.exists(os.path.join(checkpoint_path, 'val_info.txt')) and \
-               os.path.exists(os.path.join(checkpoint_path, 'optimizer_state.pkl'))
+               os.path.exists(os.path.join(checkpoint_path, 'optimizer_state.tpkl'))
 
     @staticmethod
-    def load_model(checkpoint_path):
+    def load_model(checkpoint_path, map_location=None):
 #         return torch.jit.load(os.path.join(checkpoint_path, 'model.model'))
-        return torch.load(os.path.join(checkpoint_path, 'model.model'))
+        #return torch.load(os.path.join(checkpoint_path, 'model.model'), map_location=map_location)
+        return torch.load(os.path.join(checkpoint_path, 'model.model'), map_location='cpu')
 
     @staticmethod
-    def load_model_state_(model, checkpoint_path):
-        with open(os.path.join(checkpoint_path, 'model_state.pkl'), 'rb') as modelfile:
-            model.load_state_dict(pkl.load(modelfile))
+    def load_model_state(model, checkpoint_path, map_location=None):
+        #with open(os.path.join(checkpoint_path, 'model_state.pkl'), 'rb') as modelfile:
+        #    model.load_state_dict(pkl.load(modelfile))
+        model.load_state_dict(torch.load(os.path.join(checkpoint_path, 'model_state.tpkl'), map_location='cpu'))
 
     @staticmethod
-    def load_optimizer_state(optimizer, checkpoint_path):
-        with open(os.path.join(checkpoint_path, 'optimizer_state.pkl'), 'rb') as optimizerfile:
-            optimizer.load_state_dict(pkl.load(optimizerfile))
+    def load_optimizer_state(optimizer, checkpoint_path, map_location=None):
+        #with open(os.path.join(checkpoint_path, 'optimizer_state.pkl'), 'rb') as optimizerfile:
+        #    optimizer.load_state_dict(pkl.load(optimizerfile))
+        optimizer.load_state_dict(torch.load(os.path.join(checkpoint_path, 'optimizer_state.tpkl'), map_location='cpu'))
 
     def __init__(self, model_manip, dataset_val, stats_every, verbose_every, checkpoint_every, checkpoint_path, restart, new_epoch, max_steps, save_whole_model=False):
         self.train_steps = []
@@ -200,11 +209,18 @@ class TrainingTracker:
             torch.save(self.model_manip.model, os.path.join(self.checkpoint_path, 'model.model'))
             # torch.jit.save(self.model_manip.model, os.path.join(self.checkpoint_path, 'model.model'))
         else:
-            with open(os.path.join(self.checkpoint_path, 'model_state.pkl'), 'wb') as modelfile:
-                pkl.dump(self.model_manip.model.state_dict(), modelfile)
+            #with open(os.path.join(self.checkpoint_path, 'model_state.pkl'), 'wb') as modelfile:
+            #    pkl.dump(self.model_manip.model.state_dict(), modelfile)
+            #torch.save(self.model_manip.model.state_dict(), os.path.join(self.checkpoint_path, 'model_state.tpkl'))
+            device = self.model_manip.device
+            torch.save(self.model_manip.model.cpu().state_dict(), os.path.join(self.checkpoint_path, 'model_state.tpkl'))
+            self.model_manip.model.to(device)
         # save optimizer state
-        with open(os.path.join(self.checkpoint_path, 'optimizer_state.pkl'), 'wb') as optimizerfile:
-            pkl.dump(self.model_manip.optimizer.state_dict(), optimizerfile)
+        #with open(os.path.join(self.checkpoint_path, 'optimizer_state.pkl'), 'wb') as optimizerfile:
+        #    pkl.dump(self.model_manip.optimizer.state_dict(), optimizerfile)
+        move_optimizer(self.model_manip.optimizer, 'cpu')
+        torch.save(self.model_manip.optimizer.state_dict(), os.path.join(self.checkpoint_path, 'optimizer_state.tpkl'))
+        move_optimizer(self.model_manip.optimizer, self.model_manip.device)
         # save epoch
         with open(os.path.join(self.checkpoint_path, 'iternum.txt'), 'w') as iternumfile:
             iternumfile.write(str([i,self.step_num]))
@@ -381,15 +397,15 @@ def split_dataset(dataset, proportions):
     lengths.append(len(dataset)-sum(lengths))
     return random_split(dataset, lengths)
 
-def dicts_into_batch(list_of_dicts):
+def dicts_into_batch(list_of_dicts, variable_keys=[]):
     return_dict = {}
     for dictionary in list_of_dicts:
         for key,value in dictionary.items():
             if key not in return_dict.keys():
                 return_dict[key] = []
-            return_dict[key].append(value.view(1,*value.size()) if isinstance(value, torch.Tensor) else value)
+            return_dict[key].append(value)
     for key,value in return_dict.items():
-        return_dict[key] = torch.cat(value, 0) if isinstance(value[0], torch.Tensor) else value
+        return_dict[key] = pad_and_concat(value, static=key not in variable_keys) if isinstance(value[0], torch.Tensor) else value
     return return_dict
 
 def plot_checkpoint(checkpoint_path, figure_name=None, show=True, average_over=1):
@@ -462,8 +478,6 @@ def pad_and_concat(tensors, static=False):
                 raise Exception
             for i in range(dim):
                 max_size[i] = max(max_size[i], tensor.size(i))
-    else:
-        max_size = tensors[0].size()
     concatenated_tensor = []
     for tensor in tensors:
         if not static:

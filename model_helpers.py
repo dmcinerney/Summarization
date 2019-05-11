@@ -278,7 +278,8 @@ class PointerInfo:
         return self.text[self.valid_indices] if self.valid_indices is not None else self.text
 
     def get_oov_holes(self):
-        return self.oov_holes[self.valid_indices] if self.valid_indices is not None else self.oov_holes
+        return (self.oov_holes[self.valid_indices] if self.valid_indices is not None else self.oov_holes)\
+               if self.oov_holes is not None else None
 
 def summarizer_loss(loss):
     return loss.mean()
