@@ -41,8 +41,8 @@ def get_text_triplets(batch, aspect_summaries, vectorizer, aspects):
     for i in range(len(aspect_summaries[0][0])):
         text_indices, text_length = batch['text'][i].numpy(), batch['text_length'][i].numpy()
         oov_words = {v:k for k,v in batch['text_oov_indices'][i].items()} if 'text_oov_indices' in batch.keys() else None
-        #text = vectorizer.get_index_words(text_indices[:text_length], oov_words=oov_words)
-        text = []
+        text = vectorizer.get_index_words(text_indices[:text_length], oov_words=oov_words)
+        #text = []
 
         reference_summaries, decoded_summaries = [], []
         for j,aspect in enumerate(aspects):
@@ -90,7 +90,7 @@ def produce_summary_files(dataset, batch_size, vectorizer, model, path, beam_siz
         if max_num_batch is not None and (i+1) >= max_num_batch:
             break
 
-def run_rouge_1(system_path, reference_path, save_to=None):
+def run_rouge_1(system_path, reference_path, save_to=None, verbose=False):
     from pyrouge import Rouge155
     r = Rouge155()
     r.system_dir = system_path
@@ -99,12 +99,14 @@ def run_rouge_1(system_path, reference_path, save_to=None):
     r.model_filename_pattern = 'article#ID#_reference_summary.txt'
 
     output = r.convert_and_evaluate()
-    print(output)
+    if verbose:
+        print(output)
     output_dict = r.output_to_dict(output)
     if save_to is not None:
         with open(save_to, 'w') as file:
             file.write(output)
             file.write(str(output_dict))
+    return output_dict
 
 def run_rouge_2(save_to=None):
     call(['java', '-Drouge.prop=rouge/ROUGE-2/rouge.properties', '-jar', 'rouge/ROUGE-2/rouge2-1.2.jar'])

@@ -5,9 +5,9 @@ import subprocess
 import os
 from pytorch_helper import StopEarlyWithoutSavingException
 
-CHECKPOINTS_FOLDER = 'EMNLP/Transformer'
+CHECKPOINTS_FOLDER = 'EMNLP/TransformerSeq2SeqAttn3'
 DEVICE = 'cuda:0'
-POINTER_GEN = True
+POINTER_GEN = False
 USE_TRANSFORMER = True
 sections = [
     dict(max_training_steps=10000,  max_text_length=100, max_summary_length=50, with_coverage=False),
@@ -33,9 +33,19 @@ sections = [
     dict(max_training_steps=210000, max_text_length=400, max_summary_length=100, with_coverage=False),
     dict(max_training_steps=220000, max_text_length=400, max_summary_length=100, with_coverage=False),
     dict(max_training_steps=230000, max_text_length=400, max_summary_length=100, with_coverage=False),
-    dict(max_training_steps=231000, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=232000, max_text_length=400, max_summary_length=100, with_coverage=True),
-    dict(max_training_steps=233000, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=240000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=250000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=260000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=270000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=280000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=290000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=300000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=310000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=320000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=330000, max_text_length=400, max_summary_length=100, with_coverage=False),
+    dict(max_training_steps=331000, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=332000, max_text_length=400, max_summary_length=100, with_coverage=True),
+    dict(max_training_steps=333000, max_text_length=400, max_summary_length=100, with_coverage=True),
 ]
 
 if __name__ == '__main__':
@@ -51,4 +61,3 @@ if __name__ == '__main__':
             subprocess.run(['cp','-r',checkpoint_path,os.path.join(CHECKPOINTS_FOLDER,'checkpoint%i' % (i+1))])
         except StopEarlyWithoutSavingException:
             print('Section already done!')
-

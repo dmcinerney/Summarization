@@ -5,7 +5,7 @@ from word_models import train_word2vec_model, save_dictionary
 import os
 from aspect_specific_model import AspectSummarizer
 from model_helpers import aspect_summarizer_loss, aspect_summarizer_error
-from pytorch_helper import ModelManipulator, TrainingTracker, plot_learning_curves, plot_checkpoint
+from pytorch_helper import ModelManipulator, TrainingTracker, plot_learning_curves, plot_checkpoint, IndicesIterator
 import torch
 from utils import summarize, print_batch, visualize as vis, produce_summary_files, run_rouge_1
 import pdb
@@ -120,19 +120,23 @@ def evaluate(vectorizer, data=None):
         max_num_batch=None
     )
     #run_rouge_2(save_to=os.path.join(p.CHECKPOINT_PATH, 'rouge_scores.txt') if p.CHECKPOINT_PATH is not None else None)
-    run_rouge_1(os.path.join(text_path, 'system'), os.path.join(text_path, 'reference'), save_to=os.path.join(text_path, 'rouge_scores.txt'))
+    run_rouge_1(os.path.join(text_path, 'system'), os.path.join(text_path, 'reference'), save_to=os.path.join(text_path, 'rouge_scores.txt'), verbose=True)
 
-
+# very hacky
 def visualize(vectorizer, data=None):
     data = get_data(p.VAL_FILE, vectorizer, with_oov=p.POINTER_GEN, aspect_file=p.ASPECT_FILE) if data is None else data
     model = new_model(vectorizer, data.dataset.aspects).eval()
     #with open(p.MODEL_FILE, 'rb') as modelfile:
     #    model.load_state_dict(pkl.load(modelfile))
     model.load_state_dict(torch.load(p.MODEL_FILE, map_location=p.DEVICE))
-    batch = data[271:271+p.DECODING_BATCH_SIZE]
-    aspect_results = summarize(batch, model, beam_size=p.BEAM_SIZE)
-    print_batch(batch, [r[0] for r in aspect_results], vectorizer, model.aspects)
-    vis(p.VISUALIZATION_FILE, batch, [r[0] for r in aspect_results], vectorizer, model.aspects, 0, 0, pointer_gen=p.POINTER_GEN)
+    vis_path = p.VIS_PATH
+    for i,indices in IndicesIterator(len(data), batch_size=p.DECODING_BATCH_SIZE, shuffle=False):
+        batch = data[indices]
+        aspect_results = summarize(batch, model, beam_size=p.BEAM_SIZE)
+        #print_batch(batch, [r[0] for r in aspect_results], vectorizer, model.aspects)
+        for j in range(len(indices)):
+            vis(os.path.join(vis_path, 'article%i_vis_data.json' % (i*p.DECODING_BATCH_SIZE+j)), batch, [r[0] for r in aspect_results], vectorizer, model.aspects, j, 0, pointer_gen=p.POINTER_GEN)
+        print(i)
 
 def set_params(**kwargs):
     # change parameters p based on arguments
