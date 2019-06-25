@@ -56,9 +56,14 @@ class Encoder(nn.Module):
 #         text = [self.vectorizer.get_text_matrix(example[:text_length[i]], text.size(1))[0].unsqueeze(0) for i,example in enumerate(text)]
 #         text = torch.cat(text, 0)
         text = self.vectorizer(text, text_length)
+        if store is not None and "mask" in store.keys():
+            text = text*store["mask"]
 
         # run text through lstm encoder
         text_states, state = self.text_encoder(text, text_length, store=store)
+        
+        if store is not None:
+            store['text_states'] = text_states
         return text_states, state
 
 class Decoder(nn.Module):

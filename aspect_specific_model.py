@@ -38,10 +38,11 @@ class AspectSummarizer(Summarizer):
         decoding = next(iter(kwargs.values())) is None
         final_return_values = {} if not decoding else []
         text, text_length = trim_text(text, text_length, p.MAX_TEXT_LENGTH)
+        original_store = dict(store)
         for i,aspect in enumerate(self.aspects):
             self.curr_aspect = i
             if store is not None:
-                store[aspect] = {}
+                store[aspect] = dict(original_store)
                 aspect_store = store[aspect]
             else:
                 aspect_store = None
