@@ -1,9 +1,8 @@
 import torch
 from torch import nn
 import math
-from attention import ScaledDotProductAttention
+from models.attention import ScaledDotProductAttention
 import torch.nn.functional as F
-import pdb
 
 # taken from http://nlp.seas.harvard.edu/2018/04/03/attention.html
 def positional_encoding(sequence_length, vector_length, device):

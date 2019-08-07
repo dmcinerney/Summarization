@@ -1,18 +1,18 @@
 from gensim.models import Word2Vec
 from gensim.corpora import Dictionary
-from data import get_data, Word2VecVectorizer, TrainableVectorizer
-from word_models import train_word2vec_model, save_dictionary
+from preprocessing.data import get_data, Word2VecVectorizer, TrainableVectorizer
+from preprocessing.word_models import train_word2vec_model, save_dictionary
 import os
-from aspect_specific_model import AspectSummarizer
-from model_helpers import aspect_summarizer_loss, aspect_summarizer_error
+from models.aspect_specific_model import AspectSummarizer
+from models.model_helpers import aspect_summarizer_loss, aspect_summarizer_error
 from pytorch_helper import ModelManipulator, TrainingTracker, plot_learning_curves, plot_checkpoint
 import torch
 from utils import summarize, print_batch, visualize as vis, produce_summary_files, run_rouge_1
 import pdb
 import parameters as p
 import pickle as pkl
-from model_helpers import clip_grad_norm
-from submodules import TransformerTextEncoder, TransformerSummaryDecoder, LSTMTextEncoder, LSTMSummaryDecoder
+from models.model_helpers import clip_grad_norm
+from models.submodules import TransformerTextEncoder, TransformerSummaryDecoder, LSTMTextEncoder, LSTMSummaryDecoder
 import argparse
 
 def new_model(vectorizer, aspects):

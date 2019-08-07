@@ -1,6 +1,6 @@
 import torch
 from pytorch_helper import pad_and_concat, batch_stitch
-from beam_search import Hypothesis
+from models.beam_search import Hypothesis
 import parameters as p
 from torch.nn.utils import clip_grad_norm_
 import pdb

@@ -1,6 +1,6 @@
-from model import Summarizer, Encoder, Decoder, PointerGenDecoder
-from submodules import LSTMTextEncoder, LSTMSummaryDecoder
-from model_helpers import PointerInfo, trim_text
+from models.model import Summarizer, Encoder, Decoder, PointerGenDecoder
+from models.submodules import LSTMTextEncoder, LSTMSummaryDecoder
+from models.model_helpers import PointerInfo, trim_text
 import parameters as p
 
 

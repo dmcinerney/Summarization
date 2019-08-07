@@ -3,10 +3,9 @@ from torch import nn
 from torch.nn import functional as F
 from pytorch_helper import pack_padded_sequence_maintain_order, pad_packed_sequence_maintain_order
 import parameters as p
-from model_helpers import init_lstm_weights, init_linear_weights
-from transformer import positional_encoding, CustomTransformerEnc, CustomTransformerDecCell
-from attention import Attention, AdditiveAttention
-import pdb
+from models.model_helpers import init_lstm_weights, init_linear_weights
+from models.transformer import positional_encoding, CustomTransformerEnc, CustomTransformerDecCell
+from models.attention import Attention, AdditiveAttention
 
 # Description: this file contains the sub neural networks that are used in the summarization models
 # Outline:

@@ -1,11 +1,11 @@
 import parameters as p
 from summarize import setup, set_params, train
-from data import get_data
+from preprocessing.data import get_data
 import subprocess
 import os
 from pytorch_helper import StopEarlyWithoutSavingException
 
-CHECKPOINTS_FOLDER = 'EMNLP/NSeq2SeqAttn'
+CHECKPOINTS_FOLDER = 'Checkpoints/LSTM'
 DEVICE = 'cuda:0'
 POINTER_GEN = False
 USE_TRANSFORMER = False

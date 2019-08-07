@@ -3,8 +3,8 @@ from pytorch_helper import VariableLength
 import pandas as pd
 import torch
 from torch import nn
-from datasets import SummarizationDataset, PreprocessedSummarizationDataset
-from model_helpers import init_weights_normal
+from preprocessing.datasets import SummarizationDataset, PreprocessedSummarizationDataset
+from models.model_helpers import init_weights_normal
 import pdb
 
 

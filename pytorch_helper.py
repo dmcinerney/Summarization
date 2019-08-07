@@ -275,6 +275,8 @@ class OneAtATimeDataset(Dataset):
         raise NotImplementedError
 
     def __getitem__(self, index):
+        if type(index) is list:
+            index = torch.tensor(index)
         if type(index) is slice:
             return self.get_multiple_items(range(len(self))[index])
         elif type(index) is torch.Tensor and len(index.size()) > 0:

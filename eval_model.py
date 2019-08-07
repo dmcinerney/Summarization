@@ -4,7 +4,7 @@ from data import get_data
 import subprocess
 import os
 
-CHECKPOINTS_FOLDER = 'EMNLP/NSeq2SeqAttn'
+CHECKPOINTS_FOLDER = 'Checkpoints/LSTM'
 DEVICE = 'cuda:0'
 POINTER_GEN = False
 USE_TRANSFORMER = False

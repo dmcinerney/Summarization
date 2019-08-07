@@ -1,5 +1,5 @@
+import torch
 from pytorch_helper import VariableLength
-import pdb
 
 class SummarizationDataset:
     def __init__(self, df, aspect_file=None):
@@ -12,6 +12,7 @@ class SummarizationDataset:
                 self.aspects = eval(aspectfile.read())
 
     def read(self, i):
+        i = i if not isinstance(i, torch.Tensor) else i.item()
         text = self.prepare_text(self.df.text[i])
         aspect_summaries = [self.prepare_text(self.df[aspect_name][i]) for aspect_name in self.aspects]
         return (text, *aspect_summaries)
@@ -40,10 +41,10 @@ class PreprocessedSummarizationDataset(VariableLength):
         self.dataset = dataset
         self.vectorizer = vectorizer
         self.with_oov = with_oov
-        
+
     def get_raw_inputs(self, i):
         return self.dataset.read(i), None
-    
+
     def prepare_inputs(self, v_args, nv_args, lengths):
         text, summaries = v_args[0], v_args[1:]
         text_length_max, summary_length_maxes = lengths[0], lengths[1:]
@@ -56,6 +57,6 @@ class PreprocessedSummarizationDataset(VariableLength):
             return_dict[self.dataset.aspects[i]] = summary
             return_dict[self.dataset.aspects[i]+'_length'] = summary_length
         return return_dict
-    
+
     def __len__(self):
         return len(self.dataset)

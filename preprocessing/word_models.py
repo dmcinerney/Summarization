@@ -1,4 +1,4 @@
-from datasets import SummarizationDataset
+from preprocessing.datasets import SummarizationDataset
 import pandas as pd
 from gensim.models import Word2Vec
 from gensim.corpora import Dictionary

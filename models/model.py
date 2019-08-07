@@ -1,11 +1,10 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from beam_search import beam_search
-from submodules import LSTMTextEncoder, CombineContext, LSTMSummaryDecoder, ContextVectorNN, VocabularyDistributionNN, ProbabilityNN
-from model_helpers import GeneratedSummary, GeneratedSummaryHypothesis, PointerInfo, trim_text
+from models.beam_search import beam_search
+from models.submodules import LSTMTextEncoder, CombineContext, LSTMSummaryDecoder, ContextVectorNN, VocabularyDistributionNN, ProbabilityNN
+from models.model_helpers import GeneratedSummary, GeneratedSummaryHypothesis, PointerInfo, trim_text
 import parameters as p
-import pdb
 
 # Outline:
 # a) Summarizer
