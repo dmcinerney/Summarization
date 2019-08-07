@@ -35,7 +35,7 @@ Unfortunately, the spacy module and model has to be downloaded separately:
 
 ## Configuring the model
 
-In order to configure the model, edit the parameters at the top of the `train_model.py` script.  You can edit the default parameters in `parameters.py`.  Any parameters not appearing at the top of the `train_model.py` script will be set to the default parameters.
+In order to configure the model, edit the parameters at the top of the `train_model.py` and `eval_model.py` scripts.  You can edit the default parameters in `parameters.py`.  Any parameters not appearing at the top of the `train_model.py` and `eval_model.py` scripts will be set to the default parameters.
 
 ## Run Training
 
