@@ -37,13 +37,23 @@ Unfortunately, the spacy module and model has to be downloaded separately:
 
 In order to configure the model, edit the parameters at the top of the `train_model.py` and `eval_model.py` scripts.  You can edit the default parameters in `parameters.py`.  Any parameters not appearing at the top of the `train_model.py` and `eval_model.py` scripts will be set to the default parameters.
 
+**Sections:** At the beginning of the `train_model.py` there is a list of parameter dictionaries called `sections`.  Sections allows the user to do 2 things: save the checkpoint folder at specific intervals during training and alter parameters throughout training.  Every section needs to change the parameter `max_training_steps`.  There are certain parameters that cannot be changed, such as any that change the number of parameters in the model, but it is usefull, for example, for adding in coverage or changing the maximum length of the input text or summary.  The default sections list saves a checkpoint every 10000 iterations, add coverage for the last 3000 iterations, and start with max text and summary lengths of 100 and 50 respectively, bumping up to 400 and 100 after the first 50000 iterations.
+
 ## Run Training
 
-You can train the model, saving to a logfile as well, by running:
+In order to train the model, you need to make an empty directory to hold the checkpoints, for instance:
+
+    mkdir path/to/checkpoints
+
+and then create an empty main checkpoint folder.  (Checkpoints will be saved by copying this main checkpoint folder at intervals during training).  IMPORTANT: this must be named "`checkpoint`":
+
+    mkdir path/to/checkpoints/checkpoint
+
+Then make sure the parameter CHECKPOINT_PATH at the beginning of your `train_model.py` file points to your checkpoints directory path.  (In this case, you would set `CHECKPOINT_PATH="path/to/checkpoints"`.)  You can then train the model, saving to a logfile as well, by running:
 
     python -u train_model.py 2>&1 | tee <log_file>
 
-The checkpoints will be saved in the `CHECKPOINT_PATH` specified in `train_model.py`.
+The checkpoints will be saved in the `CHECKPOINT_PATH` specified in `train_model.py`.  If you interrupt any training run, you can resume it simply by rerunning the above command as long as the `CHECKPOINT_PATH` is set to the right run's checkpoints directory path.
 
 ## Run Evaluation
 

@@ -1,10 +1,10 @@
 import parameters as p
 from summarize import setup, set_params, evaluate
-from data import get_data
+from preprocessing.data import get_data
 import subprocess
 import os
 
-CHECKPOINTS_FOLDER = 'Checkpoints/LSTM'
+CHECKPOINTS_FOLDER = 'checkpoints/LSTM'
 DEVICE = 'cuda:0'
 POINTER_GEN = False
 USE_TRANSFORMER = False
@@ -12,7 +12,7 @@ sections = [dict(
     model_file=os.path.join(CHECKPOINTS_FOLDER, 'checkpoint%i/model_state.pkl' % i),
     text_path=os.path.join(CHECKPOINTS_FOLDER, 'checkpoint%i' % i),
     with_coverage=(i > 23)
-) for i in (26,23)]
+) for i in (26,23,)]
 
 if __name__ == '__main__':
     vectorizer = setup(checkpoint_path=None, device=DEVICE, pointer_gen=POINTER_GEN, use_transformer=USE_TRANSFORMER, mode='eval')

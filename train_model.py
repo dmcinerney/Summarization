@@ -5,7 +5,7 @@ import subprocess
 import os
 from pytorch_helper import StopEarlyWithoutSavingException
 
-CHECKPOINTS_FOLDER = 'Checkpoints/LSTM'
+CHECKPOINTS_FOLDER = 'checkpoints/LSTM'
 DEVICE = 'cuda:0'
 POINTER_GEN = False
 USE_TRANSFORMER = False

@@ -3,9 +3,9 @@ import torch
 #ASPECT_FILE = 'data/pico_dataset/aspects.txt'
 ASPECT_FILE = None
 #WORD2VEC_FILE = 'data/cnn_dataset/word2vec128.model'
-DICTIONARY_FILE = 'data/cnn_dataset/dictionary.model'
-DATA_FILE = 'data/cnn_dataset/train_processed.data'
-VAL_FILE = 'data/cnn_dataset/val_processed.data'
+DICTIONARY_FILE = '../../data/cnn_dataset/dictionary.model'
+DATA_FILE = '../../data/cnn_dataset/train_processed.data'
+VAL_FILE = '../../data/cnn_dataset/val_processed.data'
 MODE = 'eval'
 CONTINUE_FROM_CHECKPOINT = True
 CHECKPOINT_PATH = 'checkpoints/_'
