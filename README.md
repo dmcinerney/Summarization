@@ -17,26 +17,13 @@ This repository has been created to explore different possible models and techni
     - USE_TRANSFORMER = True
     - POINTER_GEN = True
 
-## Datasets
-
-- Newsroom summarization dataset from Cornell: https://summari.es/
-- CNN/Daily Mail summarization dataset, download processed version here: https://github.com/JafferWilson/Process-Data-of-CNN-DailyMail
-
 ## Setup
-### Setup the repo
 
-First run:
-
-    pip install -r requirements.txt
-
-Unfortunately, the spacy module and model has to be downloaded separately:
-
-    pip install spacy
-    python -m spacy download en_core_web_sm
+I recommend installing the pyrouge before anything else, because it can be finicky with some of the other packages.  (I'd also recommend starting off with a fresh virtual environment.)
 
 ### Installing pyrouge
 
-You also need to install pyrouge.  Unfortunately, this can be a bit confusing, so here are some detailed instructions.
+You need to install pyrouge for evaluating the model.  Unfortunately, this can be a bit confusing, so here are some detailed instructions.
 
 In order to do this, you should get the most recent version from the pyrouge repo:
 
@@ -65,6 +52,28 @@ Then test to make sure it's working:
     python -m pyrouge.test
 
 If it says `OK`, you're good to go!
+
+### Setup the repo
+
+First run:
+
+    pip install -r requirements.txt
+
+Unfortunately, the spacy module and model has to be downloaded separately:
+
+    pip install spacy
+    python -m spacy download en_core_web_sm
+
+## Datasets
+
+- Newsroom summarization dataset from Cornell: https://summari.es/ (follow instruction for downloading here: https://github.com/lil-lab/newsroom)
+- CNN/Daily Mail summarization dataset, download processed version here: https://github.com/JafferWilson/Process-Data-of-CNN-DailyMail
+
+In order to preprocess different datasets into the same format, run
+
+    python preprocess.py <dataset_type> <data_folder>
+
+where `<dataset_type>` can either be `newsroom` or `cnn`.  This will create the files `train_processed.data`, `val_processed.data`, and `test_processed.data` in the original file.  Make sure to, in `parameters.py`, set `DATA_FILE` to point to the `train_processed.data` file, and `VAL_FILE` to the `val_processed.data` file.  If you want to evaluate the actual test set, set `VAL_FILE` to the `test_processed.data` file.
 
 ## Configuring the model
 

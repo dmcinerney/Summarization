@@ -4,9 +4,9 @@ import os
 from utils import preprocess_text
 import parameters as p
 import pandas as pd
-import pdb
 import pickle as pkl
 from tensorflow.core.example import example_pb2
+import argparse
 
 def trim_and_transform(example_generator, new_filename, transformation, constraint):
     oldcount, newcount = 0, 0
@@ -123,23 +123,49 @@ def preprocess_pico_dataset(filename, new_filename_train, new_filename_dev, new_
     with open(aspect_file, 'w') as aspectfile:
         aspectfile.write(str(['P','I','O']))
 
+def preprocess_all_newsroom_dataset_files(folder):
+    preprocess_newsroom_datafile(
+        os.path.join(folder, 'train.data'),
+        os.path.join(folder, 'train_processed.data'))
+    preprocess_newsroom_datafile(
+        os.path.join(folder, 'val.data'),
+        os.path.join(folder, 'val_processed.data'))
+    preprocess_newsroom_datafile(
+        os.path.join(folder, 'test.data'),
+        os.path.join(folder, 'test_processed.data'))
+
+def preprocess_all_cnn_dataset_files(folder):
+    preprocess_cnn_datafile(
+        os.path.join(folder, 'train.bin'),
+        os.path.join(folder, 'train_processed.data'))
+    preprocess_cnn_datafile(
+        os.path.join(folder, 'val.bin'),
+        os.path.join(folder, 'val_processed.data'))
+    preprocess_cnn_datafile(
+        os.path.join(folder, 'test.bin'),
+        os.path.join(folder, 'test_processed.data'))
+
 if __name__ == '__main__':
-    # for newsroom dataset
-    # filename = 'data/newsroom_dataset/train.data'
-    # new_filename = 'data/newsroom_dataset/train_processed.data'
-    # preprocess_newsroom_datafile(filename, new_filename)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('dataset_type')
+    parser.add_argument('data_folder')
+    args = parser.parse_args()
+    if args.dataset_type == 'newsroom':
+        # for newsroom dataset
+        preprocess_all_newsroom_dataset_files(args.data_folder)
+    elif args.dataset_type == 'cnn':
+        # for cnn dataset
+        preprocess_all_cnn_dataset_files(args.data_folder)
+    else:
+        raise Exception
 
-    # for cnn dataset
-    filename = 'data/cnn_dataset/test.bin'
-    new_filename = 'data/cnn_dataset/test_processed.data'
-    preprocess_cnn_datafile(filename, new_filename)
-
+    # IGNORE FOR NOW
     # for pico dataset
-#     aspect_file = '/Volumes/JEREDUSB/aspects.txt'
+    # aspect_file = '/Volumes/JEREDUSB/aspects.txt'
     # filename = '/Volumes/JEREDUSB/pico_cdsr.csv'
     # new_filename_train = '/Volumes/JEREDUSB/train_processed.data'
     # new_filename_dev = '/Volumes/JEREDUSB/dev_processed.data'
     # new_filename_test = '/Volumes/JEREDUSB/test_processed.data'
     # preprocess_pico_dataset(filename, new_filename_train, new_filename_dev, new_filename_test, aspect_file)
-#     with open(aspect_file, 'w') as aspectfile:
-#         aspectfile.write(str(['P','I','O']))
+    # with open(aspect_file, 'w') as aspectfile:
+    #     aspectfile.write(str(['P','I','O']))
