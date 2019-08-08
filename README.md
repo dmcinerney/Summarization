@@ -22,7 +22,8 @@ This repository has been created to explore different possible models and techni
 - Newsroom summarization dataset from Cornell: https://summari.es/
 - CNN/Daily Mail summarization dataset, download processed version here: https://github.com/JafferWilson/Process-Data-of-CNN-DailyMail
 
-## Setup the repo
+## Setup
+### Setup the repo
 
 First run:
 
@@ -32,6 +33,38 @@ Unfortunately, the spacy module and model has to be downloaded separately:
 
     pip install spacy
     python -m spacy download en_core_web_sm
+
+### Installing pyrouge
+
+You also need to install pyrouge.  Unfortunately, this can be a bit confusing, so here are some detailed instructions.
+
+In order to do this, you should get the most recent version from the pyrouge repo:
+
+    pip install git+https://github.com/bheinzerling/pyrouge.git
+
+Then clone this repo to get the original perl repo and put it in the rouge directory:
+
+    git clone https://github.com/andersjo/pyrouge
+    mv pyrouge/tools/ROUGE-1.5.5 rouge/
+    rm -rf pyrouge
+
+Then set the pyrouge path to the absolute path of the perl repo:
+
+    cd rouge/ROUGE-1.5.5
+    pyrouge_set_rouge_path $(pwd)
+
+Finally, fix a wordnet error:
+
+    cd data
+    rm WordNet-2.0.exc.db
+    ./WordNet-2.0-Exceptions/buildExeptionDB.pl ./WordNet-2.0-Exceptions ./smart_common_words.txt ./WordNet-2.0.exc.db
+    cd ../../..
+
+Then test to make sure it's working:
+
+    python -m pyrouge.test
+
+If it says `OK`, you're good to go!
 
 ## Configuring the model
 
